@@ -884,7 +884,7 @@ async function renderPatients(el) {
     (!S.pFilter.complexidade || p.complexidade === S.pFilter.complexidade)
   );
 
-  const areas = [...new Set(MOCK.patients.map(p => p.eixo_a))].sort();
+  const areas = [...new Set(patients.map(p => p.eixo_a))].sort();
   const complexidades = ['baixa', 'media', 'alta'];
 
   const compBadge = c => {
@@ -1053,6 +1053,15 @@ function renderGenerate(el) {
               </select>
             </div>
             <div class="form-group">
+              <label class="form-label" for="gEixoC">Perfil Socioeconomico</label>
+              <select class="form-control" id="gEixoC">
+                <option value="baixo_letramento_vulneravel">Baixo letramento / Vulneravel</option>
+                <option value="medio_letramento_media">Medio letramento / Classe media</option>
+                <option value="alto_letramento_bom_acesso">Alto letramento / Bom acesso</option>
+                <option value="pediatrico">Pediatrico</option>
+              </select>
+            </div>
+            <div class="form-group">
               <label class="form-label" for="gSexo">Sexo</label>
               <select class="form-control" id="gSexo">
                 <option value="">Qualquer</option>
@@ -1115,6 +1124,7 @@ async function runGenerate() {
     eixo_a: area,
     complexidade: document.getElementById('gComp').value,
     eixo_b: document.getElementById('gPerfil').value,
+    eixo_c: document.getElementById('gEixoC').value,
   };
   const sexo = document.getElementById('gSexo').value;
   const faixa = document.getElementById('gFaixa').value;

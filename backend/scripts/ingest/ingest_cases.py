@@ -24,9 +24,9 @@ from typing import Any
 import httpx
 from sqlalchemy import text, select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from app.db.models import VirtualPatient, KnowledgeChunk
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from app.db.models import VirtualPatient, KnowledgeChunk
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
@@ -376,7 +376,6 @@ async def main(cases_dir: str, reset: bool = False) -> None:
             errors += 1
     await engine.dispose()
     log.info(f"Ingestion complete: {success} processed, {errors} errors")
-    log.info("Ingestion complete")
 
 
 if __name__ == "__main__":

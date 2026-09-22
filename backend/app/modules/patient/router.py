@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
 from app.db.models import KnowledgeChunk, VirtualPatient
-from app.schemas.patient import PatientGenerateRequest, PatientGenerateResponse, VirtualPatientResponse
+from app.schemas.patient import PatientGenerateRequest, PatientGenerateResponse, VirtualPatientDetail, VirtualPatientResponse
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/patients", tags=["patients"])
@@ -48,6 +48,13 @@ EIXO_B_LABELS = {
     "resistente": "resistente e desconfiado",
     "confuso": "confuso e com dificuldade para relatar",
     "minimizador": "minimizador dos sintomas",
+}
+
+EIXO_C_LABELS = {
+    "baixo_letramento_vulneravel": "baixo letramento em saúde, contexto socioeconômico vulnerável, linguagem simples, dificuldade em descrever sintomas com precisão",
+    "medio_letramento_media": "letramento médio, classe média, compreende orientações básicas, alguma familiaridade com serviços de saúde",
+    "alto_letramento_bom_acesso": "alto letramento em saúde, bom acesso a serviços, pode usar termos técnicos, questionador e informado",
+    "pediatrico": "paciente pediátrico — respostas dadas pelo responsável, linguagem adaptada à idade da criança",
 }
 
 COMPLEXIDADE_LABELS = {
@@ -120,6 +127,7 @@ def build_user_prompt(req: PatientGenerateRequest) -> str:
         f"Área clínica (Eixo A): {EIXO_A_LABELS.get(req.eixo_a, req.eixo_a)}",
         f"Perfil comportamental (Eixo B): paciente {EIXO_B_LABELS.get(req.eixo_b, req.eixo_b)}",
         f"Complexidade: {COMPLEXIDADE_LABELS.get(req.complexidade, req.complexidade)}",
+        f"Perfil socioeconômico (Eixo C): {EIXO_C_LABELS.get(req.eixo_c, req.eixo_c)}",
     ]
     if req.sexo:
         lines.append(f"Sexo: {'masculino' if req.sexo == 'M' else 'feminino'}")
@@ -284,7 +292,7 @@ async def generate_patient(
         case_number=case_num,
         eixo_a=req.eixo_a,
         eixo_b=req.eixo_b,
-        eixo_c="baixo_letramento_vulneravel",
+        eixo_c=req.eixo_c,
         complexidade=req.complexidade,
         nome=nome,
         idade=idade,
@@ -348,7 +356,7 @@ async def generate_patient(
     log.info(f"  Ingestão completa: {len(all_chunks)} chunks para paciente #{case_num}")
 
     return PatientGenerateResponse(
-        patient=VirtualPatientResponse.model_validate(patient),
+        patient=VirtualPatientDetail.model_validate(patient),
         chunks_ingested=len(all_chunks),
         generated_by="gpt-4o",
     )

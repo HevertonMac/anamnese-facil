@@ -129,6 +129,10 @@ class PatientGenerateRequest(BaseModel):
         default="media",
         description="Complexidade do caso. Valores: baixa, media, alta",
     )
+    eixo_c: str = Field(
+        default="baixo_letramento_vulneravel",
+        description="Perfil socioeconômico. Valores: baixo_letramento_vulneravel, medio_letramento_media, alto_letramento_bom_acesso, pediatrico",
+    )
     sexo: Optional[str] = Field(
         default=None,
         description="M ou F. Se omitido, o LLM escolhe coerentemente com o caso.",
@@ -144,6 +148,6 @@ class PatientGenerateRequest(BaseModel):
 
 
 class PatientGenerateResponse(BaseModel):
-    patient: VirtualPatientResponse
+    patient: VirtualPatientDetail
     chunks_ingested: int
     generated_by: str = "gpt-4o"
