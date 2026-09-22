@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+.env
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / React
+node_modules/
+dist/
+.next/
+.vite/
+*.local
+
+# Dados e modelos
+*.sqlite
+*.db
+*.faiss
+*.pkl
+*.pt
+*.bin
+
+# Docker
+.docker/
+
+# Editor
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Segredos
+*.env
+.env.*
+!.env.example
+secrets/
