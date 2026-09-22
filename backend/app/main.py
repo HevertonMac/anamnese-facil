@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.db.database import engine
 from app.db.models import Base
 from app.modules.knowledge_base.router import router as kb_router
+from app.modules.patient.router import router as patient_router
 
 log = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "http://localhost:3000,http:
 app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 app.include_router(kb_router, prefix="/api/v1")
+app.include_router(patient_router, prefix="/api/v1")
 
 
 @app.on_event("startup")

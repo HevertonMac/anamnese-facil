@@ -54,8 +54,8 @@ class ComplexidadeEnum(str, enum.Enum):
 
 
 class SexoEnum(str, enum.Enum):
-    masculino = "M"
-    feminino = "F"
+    M = "M"
+    F = "F"
 
 
 class VirtualPatient(Base):

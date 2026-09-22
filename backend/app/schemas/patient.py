@@ -109,3 +109,41 @@ class KnowledgeSearchResult(BaseModel):
     section: str
     content: str
     similarity: float
+
+
+# ── Geração de pacientes via LLM ──────────────────────────────────────────────
+
+class PatientGenerateRequest(BaseModel):
+    eixo_a: str = Field(
+        description=(
+            "Área clínica principal. Valores: cardiovascular, respiratorio, "
+            "gastrointestinal, neurologico, musculoesqueletico, "
+            "endocrino_metabolico, geniturinario"
+        )
+    )
+    eixo_b: str = Field(
+        default="colaborativo",
+        description="Perfil comportamental. Valores: colaborativo, ansioso, resistente, confuso, minimizador",
+    )
+    complexidade: str = Field(
+        default="media",
+        description="Complexidade do caso. Valores: baixa, media, alta",
+    )
+    sexo: Optional[str] = Field(
+        default=None,
+        description="M ou F. Se omitido, o LLM escolhe coerentemente com o caso.",
+    )
+    faixa_etaria: Optional[str] = Field(
+        default=None,
+        description="Faixa etária: crianca (0-12), adolescente (13-17), adulto (18-59), idoso (60+). Se omitido, o LLM escolhe.",
+    )
+    instrucoes_extras: Optional[str] = Field(
+        default=None,
+        description="Instruções livres para personalizar o caso gerado (ex: 'paciente gestante', 'contexto rural').",
+    )
+
+
+class PatientGenerateResponse(BaseModel):
+    patient: VirtualPatientResponse
+    chunks_ingested: int
+    generated_by: str = "gpt-4o"

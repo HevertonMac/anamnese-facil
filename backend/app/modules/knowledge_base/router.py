@@ -58,25 +58,44 @@ async def create_patient(data: VirtualPatientCreate, db: AsyncSession = Depends(
 @router.post("/search", response_model=list[KnowledgeSearchResult])
 async def semantic_search(req: KnowledgeSearchRequest, db: AsyncSession = Depends(get_db)):
     from app.core.embeddings import get_embedding
+
     query_embedding = await get_embedding(req.query)
-    embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
-    where_clause = ""
-    params = {"embedding": embedding_str, "top_k": req.top_k}
+    is_zero_vector = all(v == 0.0 for v in query_embedding)
+
+    patient_filter = ""
+    params: dict = {"top_k": req.top_k}
     if req.patient_id:
-        where_clause = "AND kc.patient_id = :patient_id"
-        params["patient_id"] = req.patient_id
-    rows = await db.execute(
-        text(f"""
+        patient_filter = "AND kc.patient_id = :patient_id"
+        params["patient_id"] = str(req.patient_id)
+
+    if is_zero_vector:
+        # No API key — fall back to keyword search with ILIKE
+        keyword = "%" + req.query.replace("%", "") + "%"
+        params["keyword"] = keyword
+        sql = text(f"""
             SELECT kc.patient_id, vp.nome AS patient_name, kc.section, kc.content,
-                   1 - (kc.embedding <=> :embedding::vector) AS similarity
+                   0.5 AS similarity
             FROM knowledge_chunks kc
             JOIN virtual_patients vp ON vp.id = kc.patient_id
-            WHERE kc.embedding IS NOT NULL {where_clause}
-            ORDER BY kc.embedding <=> :embedding::vector
+            WHERE kc.content ILIKE :keyword {patient_filter}
+            ORDER BY kc.patient_id, kc.chunk_index
             LIMIT :top_k
-        """),
-        params,
-    )
+        """)
+    else:
+        # Semantic search — CAST(:embedding AS vector) works with asyncpg
+        embedding_str = "[" + ",".join(f"{v:.8f}" for v in query_embedding) + "]"
+        params["embedding"] = embedding_str
+        sql = text(f"""
+            SELECT kc.patient_id, vp.nome AS patient_name, kc.section, kc.content,
+                   1 - (kc.embedding <=> CAST(:embedding AS vector)) AS similarity
+            FROM knowledge_chunks kc
+            JOIN virtual_patients vp ON vp.id = kc.patient_id
+            WHERE kc.embedding IS NOT NULL {patient_filter}
+            ORDER BY kc.embedding <=> CAST(:embedding AS vector)
+            LIMIT :top_k
+        """)
+
+    rows = await db.execute(sql, params)
     return [
         KnowledgeSearchResult(
             patient_id=row.patient_id, patient_name=row.patient_name,

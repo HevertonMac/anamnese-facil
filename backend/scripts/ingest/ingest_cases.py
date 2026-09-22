@@ -22,8 +22,9 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from sqlalchemy import text
+from sqlalchemy import text, select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from app.db.models import VirtualPatient, KnowledgeChunk
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -176,24 +177,30 @@ def parse_identificacao(text: str) -> dict[str, Any]:
 
 
 def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
+    if not text.strip():
+        return []
     if len(text) <= chunk_size:
-        return [text] if text.strip() else []
+        return [text.strip()]
     chunks = []
     start = 0
     while start < len(text):
-        end = start + chunk_size
+        end = min(start + chunk_size, len(text))
+        # Search for natural break point, but only in the LAST quarter of the window
+        # to guarantee we always advance by at least chunk_size - overlap chars
         if end < len(text):
+            search_from = start + max(overlap, chunk_size // 2)
             for sep in ["\n\n", "\n", ". ", " "]:
-                idx = text.rfind(sep, start, end)
+                idx = text.rfind(sep, search_from, end)
                 if idx != -1:
                     end = idx + len(sep)
                     break
         chunk = text[start:end].strip()
         if chunk:
             chunks.append(chunk)
-        start = end - overlap
-        if start >= len(text):
-            break
+        next_start = end - overlap
+        if next_start <= start:  # guarantee forward progress always
+            next_start = start + chunk_size - overlap
+        start = next_start
     return chunks
 
 
@@ -223,15 +230,20 @@ async def ingest_case(docx_path: Path, session: AsyncSession, api_key: str) -> N
     sections = split_into_sections(raw_text)
     meta = parse_metadata_from_text(raw_text)
 
-    if "case_number" not in meta:
-        m = re.search(r"Caso[_\s]?(\d+)", docx_path.stem, re.I)
-        if m:
-            meta["case_number"] = int(m.group(1))
-        else:
-            log.error(f"Cannot determine case number for {docx_path.name}")
-            return
-
-    case_num = meta["case_number"]
+    # Always derive case_number from filename — it is the canonical source.
+    # The content may have wrong/shifted numbering (e.g. Caso_6.docx saying "Caso 7" inside).
+    m = re.search(r"Caso[_\s]?(\d+)", docx_path.stem, re.I)
+    if m:
+        case_num = int(m.group(1))
+        if meta.get("case_number") and meta["case_number"] != case_num:
+            log.warning(
+                f"  Filename says case #{case_num} but content says #{meta['case_number']} — using filename"
+            )
+    elif "case_number" in meta:
+        case_num = meta["case_number"]
+    else:
+        log.error(f"Cannot determine case number for {docx_path.name}")
+        return
     known = KNOWN_CASES.get(case_num, {})
     eixo_a = known.get("eixo_a") or meta.get("eixo_a", "cardiovascular")
     eixo_b = known.get("eixo_b") or meta.get("eixo_b", "colaborativo")
@@ -263,27 +275,48 @@ async def ingest_case(docx_path: Path, session: AsyncSession, api_key: str) -> N
         "raw_sections": sections,
     }
 
-    existing = await session.execute(text("SELECT id FROM virtual_patients WHERE case_number = :n"), {"n": case_num})
-    existing_row = existing.fetchone()
+    # Query existing patient using ORM (avoids asyncpg enum codec issues)
+    existing_result = await session.execute(
+        select(VirtualPatient).where(VirtualPatient.case_number == case_num)
+    )
+    existing_patient = existing_result.scalar_one_or_none()
 
-    if existing_row:
-        await session.execute(
-            text("UPDATE virtual_patients SET eixo_a = :eixo_a, eixo_b = :eixo_b, eixo_c = :eixo_c, complexidade = :complexidade, nome = :nome, idade = :idade, sexo = :sexo, queixa_principal = :queixa, diagnostico_principal = :diagnostico, case_data = :case_data::jsonb, updated_at = now() WHERE case_number = :n"),
-            {"eixo_a": eixo_a, "eixo_b": eixo_b, "eixo_c": "baixo_letramento_vulneravel", "complexidade": complexidade, "nome": nome, "idade": idade, "sexo": sexo, "queixa": queixa, "diagnostico": diagnostico, "case_data": json.dumps(case_data, ensure_ascii=False), "n": case_num},
-        )
-        patient_id = existing_row[0]
+    if existing_patient:
+        existing_patient.eixo_a = eixo_a
+        existing_patient.eixo_b = eixo_b
+        existing_patient.eixo_c = "baixo_letramento_vulneravel"
+        existing_patient.complexidade = complexidade
+        existing_patient.nome = nome
+        existing_patient.idade = idade
+        existing_patient.sexo = sexo
+        existing_patient.queixa_principal = queixa
+        existing_patient.diagnostico_principal = diagnostico
+        existing_patient.case_data = case_data
+        patient_id = existing_patient.id
         log.info(f"  Updated patient #{case_num} ({nome})")
     else:
-        result = await session.execute(
-            text("INSERT INTO virtual_patients (eixo_a, eixo_b, eixo_c, complexidade, case_number, nome, idade, sexo, queixa_principal, diagnostico_principal, case_data) VALUES (:eixo_a, :eixo_b, :eixo_c, :complexidade, :n, :nome, :idade, :sexo, :queixa, :diagnostico, :case_data::jsonb) RETURNING id"),
-            {"eixo_a": eixo_a, "eixo_b": eixo_b, "eixo_c": "baixo_letramento_vulneravel", "complexidade": complexidade, "n": case_num, "nome": nome, "idade": idade, "sexo": sexo, "queixa": queixa, "diagnostico": diagnostico, "case_data": json.dumps(case_data, ensure_ascii=False)},
+        patient = VirtualPatient(
+            case_number=case_num,
+            eixo_a=eixo_a,
+            eixo_b=eixo_b,
+            eixo_c="baixo_letramento_vulneravel",
+            complexidade=complexidade,
+            nome=nome,
+            idade=idade,
+            sexo=sexo,
+            queixa_principal=queixa,
+            diagnostico_principal=diagnostico,
+            case_data=case_data,
         )
-        patient_id = result.scalar_one()
+        session.add(patient)
+        await session.flush()
+        patient_id = patient.id
         log.info(f"  Inserted patient #{case_num} ({nome}) — id={patient_id}")
 
-    await session.flush()
-    await session.execute(text("DELETE FROM knowledge_chunks WHERE patient_id = :pid"), {"pid": patient_id})
+    # Delete existing chunks for this patient
+    await session.execute(delete(KnowledgeChunk).where(KnowledgeChunk.patient_id == patient_id))
 
+    log.info(f"  Building chunks from {len(sections)} sections: {list(sections.keys())[:5]}")
     all_chunks: list[tuple[str, str, int]] = []
     for section_name, section_text in sections.items():
         if not section_text.strip():
@@ -291,19 +324,26 @@ async def ingest_case(docx_path: Path, session: AsyncSession, api_key: str) -> N
         for i, chunk in enumerate(chunk_text(section_text)):
             all_chunks.append((section_name, chunk, i))
 
+    log.info(f"  Total chunks: {len(all_chunks)}")
     if not all_chunks:
-        log.warning(f"  No chunks for case #{case_num}")
+        log.warning(f"  No chunks for case #{case_num} — committing patient only")
+        await session.commit()
         return
 
     batch_size = 100
     for batch_start in range(0, len(all_chunks), batch_size):
         batch = all_chunks[batch_start:batch_start + batch_size]
         embeddings = await get_embeddings([c[1] for c in batch], api_key)
-        for (section_name, content, chunk_index), embedding in zip(batch, embeddings):
-            await session.execute(
-                text("INSERT INTO knowledge_chunks (patient_id, section, content, embedding, chunk_index, token_count) VALUES (:pid, :section, :content, :embedding, :idx, :tokens)"),
-                {"pid": patient_id, "section": section_name, "content": content, "embedding": embedding, "idx": chunk_index, "tokens": len(content.split())},
+        for (section_name, chunk_content, chunk_index), embedding in zip(batch, embeddings):
+            chunk = KnowledgeChunk(
+                patient_id=patient_id,
+                section=section_name,
+                content=chunk_content,
+                embedding=embedding,
+                chunk_index=chunk_index,
+                token_count=len(chunk_content.split()),
             )
+            session.add(chunk)
 
     log.info(f"  Embedded {len(all_chunks)} chunks for case #{case_num}")
     await session.commit()
@@ -323,10 +363,18 @@ async def main(cases_dir: str, reset: bool = False) -> None:
             await conn.execute(text("DELETE FROM knowledge_chunks"))
             await conn.execute(text("DELETE FROM virtual_patients"))
             log.info("Database reset")
-    async with async_session() as session:
-        for docx_path in docx_files:
-            await ingest_case(docx_path, session, OPENAI_API_KEY)
+    success = 0
+    errors = 0
+    for docx_path in docx_files:
+        try:
+            async with async_session() as session:
+                await ingest_case(docx_path, session, OPENAI_API_KEY)
+                success += 1
+        except Exception as exc:
+            log.error(f"FAILED {docx_path.name}: {exc}", exc_info=True)
+            errors += 1
     await engine.dispose()
+    log.info(f"Ingestion complete: {success} processed, {errors} errors")
     log.info("Ingestion complete")
 
 
