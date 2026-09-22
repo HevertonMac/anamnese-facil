@@ -1,5 +1,5 @@
 <script>document.documentElement.setAttribute("data-theme","light")</script>
-<title>Anamnese Fácil</title>
+<title>Anamnese Facil</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap">
 <style>
@@ -997,6 +997,17 @@ function renderGenerate(el) {
         <div class="gen-detail-item"><div class="gen-detail-label">Chunks Ingeridos</div><div class="gen-detail-value">${S.genResult.chunks_ingested}</div></div>
         <div class="gen-detail-item"><div class="gen-detail-label">Gerado por</div><div class="gen-detail-value">${S.genResult.generated_by}</div></div>
       </div>
+      ${(() => {
+        const agText = S.genResult.patient.case_data
+          && S.genResult.patient.case_data.raw_sections
+          && S.genResult.patient.case_data.raw_sections.caracteristicas_agente;
+        return agText
+          ? `<div style="margin-top:18px;background:var(--blue-bg,#eff6ff);border-left:3px solid var(--blue-i,#3b82f6);border-radius:6px;padding:14px 16px;">
+               <div style="font-size:11px;font-weight:700;color:var(--blue-i,#3b82f6);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Perfil do Agente de IA</div>
+               <div style="font-size:13px;color:var(--text);line-height:1.65;white-space:pre-wrap;">${agText}</div>
+             </div>`
+          : '';
+      })()}
       <div style="margin-top:14px;display:flex;gap:8px;">
         <button class="btn btn-primary" style="font-size:13px;" onclick="navigate('patients')">Ver na lista de pacientes</button>
         <button class="btn btn-ghost" style="font-size:13px;" onclick="S.genResult=null;renderView('generate')">Gerar outro</button>
@@ -1013,16 +1024,13 @@ function renderGenerate(el) {
             <label class="form-label" for="gArea">Area Clinica *</label>
             <select class="form-control" id="gArea">
               <option value="">Selecione...</option>
-              <option value="cardiologia">Cardiologia</option>
+              <option value="cardiovascular">Cardiologia / Cardiovascular</option>
               <option value="respiratorio">Respiratorio / Pneumologia</option>
-              <option value="neurologia">Neurologia</option>
-              <option value="endocrinologia">Endocrinologia</option>
-              <option value="gastroenterologia">Gastroenterologia</option>
-              <option value="psiquiatria">Psiquiatria</option>
-              <option value="reumatologia">Reumatologia</option>
-              <option value="nefrologia">Nefrologia</option>
-              <option value="hematologia">Hematologia</option>
-              <option value="infectologia">Infectologia</option>
+              <option value="gastrointestinal">Gastroenterologia</option>
+              <option value="neurologico">Neurologia</option>
+              <option value="musculoesqueletico">Musculoesqueletico / Reumatologia</option>
+              <option value="endocrino_metabolico">Endocrinologia / Metabolismo</option>
+              <option value="geniturinario">Geniturinario / Nefrologia</option>
             </select>
           </div>
           <div class="form-grid-2">
@@ -1040,7 +1048,8 @@ function renderGenerate(el) {
                 <option value="colaborativo">Colaborativo</option>
                 <option value="ansioso">Ansioso</option>
                 <option value="resistente">Resistente</option>
-                <option value="taciturno">Taciturno</option>
+                <option value="confuso">Confuso</option>
+                <option value="minimizador">Minimizador</option>
               </select>
             </div>
             <div class="form-group">
@@ -1209,6 +1218,20 @@ function renderPatientDetail(p, full) {
     ${cd.exame_fisico.texto_livre ? sectionBlock('Exame Fisico', cd.exame_fisico.texto_livre) : ''}
   ` : '';
 
+  // Perfil comportamental detalhado — vem de raw_sections["caracteristicas_agente"]
+  // (requer reingestão dos casos após fix em SECTION_PATTERNS)
+  const agenteText = cd && cd.raw_sections
+    ? (cd.raw_sections['caracteristicas_agente'] || cd.raw_sections['Características do Agente de IA'] || '')
+    : '';
+  const agentePerfil = agenteText
+    ? `<div style="background:var(--blue-bg,#eff6ff);border-left:3px solid var(--blue-i,#3b82f6);border-radius:6px;padding:14px 16px;margin-bottom:16px;">
+        <div style="font-size:11px;font-weight:700;color:var(--blue-i,#3b82f6);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Perfil do Agente de IA</div>
+        <div style="font-size:13px;color:var(--text);line-height:1.65;white-space:pre-wrap;">${agenteText}</div>
+       </div>`
+    : `<div style="font-size:12px;color:var(--text-muted);padding:10px 0 6px;">
+        Texto do perfil nao disponivel — re-ingeste os casos para popular esta secao.
+       </div>`;
+
   const hip = cd && cd.hipoteses_diagnosticas && cd.hipoteses_diagnosticas.length
     ? sectionBlock('Hipoteses Diagnosticas', listItems(cd.hipoteses_diagnosticas)) : '';
 
@@ -1249,6 +1272,7 @@ function renderPatientDetail(p, full) {
     ${hfam}
     ${hsoc}
     ${efisico}
+    ${agentePerfil}
     ${hip}
     ${diag}
     ${rawSecs}

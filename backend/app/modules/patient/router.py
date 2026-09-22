@@ -109,7 +109,8 @@ Retorne APENAS um objeto JSON válido com exatamente esta estrutura (sem markdow
     "texto_livre": "escolaridade, condições de moradia, saneamento, atividade física, alimentação, ocupação"
   },
   "exame_fisico": "achados do exame físico compatíveis com o diagnóstico (PA, FC, FR, Tax, peso, altura, achados específicos do sistema acometido)",
-  "hipoteses_diagnosticas": ["diagnóstico principal", "primeiro diferencial", "segundo diferencial se aplicável"]
+  "hipoteses_diagnosticas": ["diagnóstico principal", "primeiro diferencial", "segundo diferencial se aplicável"],
+  "caracteristicas_agente": "2-3 parágrafos descrevendo como este paciente se comporta na consulta: tom de voz, postura emocional, como responde a perguntas, o que omite ou exagera, gestos e expressões típicos. Deve ser coerente com o perfil comportamental (Eixo B) informado e com o contexto socioeconômico do paciente. Escrito em terceira pessoa, para orientar o ator/agente que vai interpretar o papel."
 }
 """
 
@@ -267,7 +268,9 @@ async def generate_patient(
         "exame_fisico": {"texto_livre": exame_raw if isinstance(exame_raw, str) else str(exame_raw)},
         "diagnostico_completo": diagnostico,
         "hipoteses_diagnosticas": case_json.get("hipoteses_diagnosticas", [diagnostico]),
-        "raw_sections": {},
+        "raw_sections": {
+            "caracteristicas_agente": case_json.get("caracteristicas_agente", ""),
+        },
         "gerado_por_llm": True,
     }
 

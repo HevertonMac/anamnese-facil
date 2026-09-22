@@ -66,6 +66,7 @@ SECTION_PATTERNS = [
     (r"(?i)hist[oó]ria\s+familiar", "historia_familiar"),
     (r"(?i)hist[oó]ria\s+social", "historia_social"),
     (r"(?i)exame\s+f[ií]sico", "exame_fisico"),
+    (r"(?i)caracter[ií]sticas\s+do\s+agente", "caracteristicas_agente"),
     (r"(?i)hip[oó]teses?\s+diagn[oó]sticas?", "hipoteses_diagnosticas"),
     (r"(?i)diagn[oó]stico", "diagnostico"),
 ]
