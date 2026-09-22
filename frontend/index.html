@@ -1145,6 +1145,26 @@ async function runGenerate() {
 // ─── Modal ────────────────────────────────────────────────────────────────────
 const sexoLabel = s => s === 'M' ? 'Masculino' : s === 'F' ? 'Feminino' : (s || '—');
 const compBadge = c => { const m={baixa:'badge-green',media:'badge-blue',alta:'badge-warn'}; return `<span class="badge ${m[c]||'badge-gray'}">${c}</span>`; };
+const eixoBadge = b => {
+  const m = {
+    colaborativo: ['badge-green', 'Colaborativo'],
+    ansioso:      ['badge-warn',  'Ansioso'],
+    resistente:   ['badge-warn',  'Resistente'],
+    confuso:      ['badge-gray',  'Confuso'],
+    minimizador:  ['badge-gray',  'Minimizador'],
+  };
+  const [cls, label] = m[b] || ['badge-gray', b || '—'];
+  return `<span class="badge ${cls}">${label}</span>`;
+};
+const eixoCLabel = c => {
+  const m = {
+    baixo_letramento_vulneravel:  'Baixo letramento / vulneravel',
+    alto_letramento_bom_acesso:   'Alto letramento / bom acesso',
+    medio_letramento_media:       'Medio letramento / media',
+    pediatrico:                   'Pediatrico',
+  };
+  return m[c] || c || '—';
+};
 
 function listItems(arr) {
   if (!arr || !arr.length) return '<span style="color:var(--text-muted)">Nenhum</span>';
@@ -1218,6 +1238,8 @@ function renderPatientDetail(p, full) {
       <div class="detail-pair"><dt>Sexo</dt><dd>${sexoLabel(p.sexo)}</dd></div>
       <div class="detail-pair"><dt>Area Clinica</dt><dd><span class="badge badge-blue">${p.eixo_a}</span></dd></div>
       <div class="detail-pair"><dt>Complexidade</dt><dd>${compBadge(p.complexidade)}</dd></div>
+      <div class="detail-pair"><dt>Perfil Comportamental</dt><dd>${eixoBadge((full||p).eixo_b)}</dd></div>
+      <div class="detail-pair"><dt>Perfil Socioeconomico</dt><dd>${eixoCLabel((full||p).eixo_c)}</dd></div>
       ${id_extra}
     </dl>
     <hr class="divider">
