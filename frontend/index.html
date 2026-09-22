@@ -544,7 +544,10 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   background: var(--surface);
   border-radius: 10px;
   width: 100%;
-  max-width: 600px;
+  max-width: 760px;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
 }
 .modal-head {
   padding: 18px 22px;
@@ -565,7 +568,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   border-radius: 4px;
 }
 .modal-close:hover { color: var(--text); background: var(--tint); }
-.modal-body { padding: 22px; }
+.modal-body { padding: 22px; overflow-y: auto; flex: 1; }
 
 .detail-pair { display: flex; gap: 16px; margin-bottom: 10px; font-size: 13.5px; }
 .detail-pair dt { width: 150px; flex-shrink: 0; font-weight: 500; color: var(--text-muted); }
@@ -1140,28 +1143,113 @@ async function runGenerate() {
 }
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
-function openPatientModal(p) {
-  const sexoLabel = s => s === 'M' ? 'Masculino' : s === 'F' ? 'Feminino' : s;
-  const compBadge = c => { const m={baixa:'badge-green',media:'badge-blue',alta:'badge-warn'}; return `<span class="badge ${m[c]||'badge-gray'}">${c}</span>`; };
+const sexoLabel = s => s === 'M' ? 'Masculino' : s === 'F' ? 'Feminino' : (s || '—');
+const compBadge = c => { const m={baixa:'badge-green',media:'badge-blue',alta:'badge-warn'}; return `<span class="badge ${m[c]||'badge-gray'}">${c}</span>`; };
 
-  document.getElementById('modalTitle').textContent = p.nome;
-  document.getElementById('modalBody').innerHTML = `
+function listItems(arr) {
+  if (!arr || !arr.length) return '<span style="color:var(--text-muted)">Nenhum</span>';
+  return arr.map(i => `<span class="badge badge-gray" style="margin:2px 3px 2px 0;display:inline-block;">${i}</span>`).join('');
+}
+
+function sectionBlock(title, html) {
+  if (!html) return '';
+  return `<div class="detail-section">${title}</div><div class="detail-text">${html}</div>`;
+}
+
+function renderPatientDetail(p, full) {
+  const cd = full ? full.case_data : null;
+  const id_extra = cd && cd.identificacao ? `
+      <div class="detail-pair"><dt>Profissao</dt><dd>${cd.identificacao.profissao || '—'}</dd></div>
+      <div class="detail-pair"><dt>Estado Civil</dt><dd>${cd.identificacao.estado_civil || '—'}</dd></div>
+      <div class="detail-pair"><dt>Naturalidade</dt><dd>${cd.identificacao.naturalidade || '—'}</dd></div>
+      <div class="detail-pair"><dt>Residencia</dt><dd>${cd.identificacao.residencia || '—'}</dd></div>` : '';
+
+  const hda = cd ? sectionBlock('Historia da Doenca Atual', cd.historia_doenca_atual) : '';
+
+  const hpath = cd && cd.historia_patologica ? `
+    ${sectionBlock('Doencas Previas', listItems(cd.historia_patologica.doencas_previas))}
+    ${sectionBlock('Medicamentos em Uso', listItems(cd.historia_patologica.medicamentos_em_uso))}
+    ${sectionBlock('Alergias', listItems(cd.historia_patologica.alergias))}
+    ${sectionBlock('Cirurgias', listItems(cd.historia_patologica.cirurgias))}
+    ${sectionBlock('Internacoes', listItems(cd.historia_patologica.internacoes))}
+    ${cd.historia_patologica.texto_livre ? sectionBlock('Obs. Patologica', cd.historia_patologica.texto_livre) : ''}
+  ` : '';
+
+  const hfam = cd && cd.historia_familiar && cd.historia_familiar.texto_livre
+    ? sectionBlock('Historia Familiar', cd.historia_familiar.texto_livre) : '';
+
+  const hsoc = cd && cd.historia_social ? `
+    ${cd.historia_social.tabagismo ? sectionBlock('Tabagismo', cd.historia_social.tabagismo) : ''}
+    ${cd.historia_social.etilismo ? sectionBlock('Etilismo', cd.historia_social.etilismo) : ''}
+    ${cd.historia_social.texto_livre ? sectionBlock('Historia Social', cd.historia_social.texto_livre) : ''}
+  ` : '';
+
+  const efisico = cd && cd.exame_fisico ? `
+    ${cd.exame_fisico.estado_geral ? sectionBlock('Estado Geral', cd.exame_fisico.estado_geral) : ''}
+    ${cd.exame_fisico.texto_livre ? sectionBlock('Exame Fisico', cd.exame_fisico.texto_livre) : ''}
+  ` : '';
+
+  const hip = cd && cd.hipoteses_diagnosticas && cd.hipoteses_diagnosticas.length
+    ? sectionBlock('Hipoteses Diagnosticas', listItems(cd.hipoteses_diagnosticas)) : '';
+
+  const diag = cd && cd.diagnostico_completo
+    ? sectionBlock('Diagnostico Completo', cd.diagnostico_completo)
+    : (p.diagnostico_principal ? sectionBlock('Diagnostico Principal', p.diagnostico_principal) : '');
+
+  const rawSecs = cd && cd.raw_sections && Object.keys(cd.raw_sections).length
+    ? `<div class="detail-section" style="margin-top:20px;cursor:pointer;" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden">
+        Secoes Brutas do Documento <span style="font-size:11px;color:var(--blue-i)">(expandir)</span>
+       </div>
+       <div hidden style="margin-bottom:12px;">
+         ${Object.entries(cd.raw_sections).map(([k,v]) => `
+           <div style="margin-bottom:14px;">
+             <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">${k}</div>
+             <div style="font-size:13px;color:var(--text);line-height:1.6;white-space:pre-wrap;">${v}</div>
+           </div>`).join('')}
+       </div>` : '';
+
+  const notFull = !full
+    ? `<div class="alert alert-warn" style="margin-top:16px;font-size:12.5px;">Dados de demonstracao — conecte a API para ver o caso completo.</div>` : '';
+
+  return `
     <dl>
       <div class="detail-pair"><dt>Caso</dt><dd>#${p.case_number}</dd></div>
       <div class="detail-pair"><dt>Idade</dt><dd>${p.idade} anos</dd></div>
       <div class="detail-pair"><dt>Sexo</dt><dd>${sexoLabel(p.sexo)}</dd></div>
       <div class="detail-pair"><dt>Area Clinica</dt><dd><span class="badge badge-blue">${p.eixo_a}</span></dd></div>
       <div class="detail-pair"><dt>Complexidade</dt><dd>${compBadge(p.complexidade)}</dd></div>
+      ${id_extra}
     </dl>
-    <div class="detail-section">Queixa Principal</div>
-    <div class="detail-text">${p.queixa_principal}</div>
-    ${p.diagnostico_principal ? `<div class="detail-section">Diagnostico Principal</div><div class="detail-text">${p.diagnostico_principal}</div>` : ''}
     <hr class="divider">
-    <p style="font-size:12.5px;color:var(--text-muted);">Dados completos do caso disponíveis via <code style="font-family:monospace;font-size:11px;background:var(--tint);padding:1px 4px;border-radius:3px;">GET /kb/patients/${p.id}</code></p>`;
+    ${sectionBlock('Queixa Principal', p.queixa_principal)}
+    ${hda}
+    ${hpath}
+    ${hfam}
+    ${hsoc}
+    ${efisico}
+    ${hip}
+    ${diag}
+    ${rawSecs}
+    ${notFull}
+  `;
+}
 
+async function openPatientModal(p) {
+  document.getElementById('modalTitle').textContent = p.nome;
+  document.getElementById('modalBody').innerHTML = '<div style="padding:32px;text-align:center;color:var(--text-muted);font-size:13px;">Carregando dados do caso...</div>';
   const overlay = document.getElementById('modalOverlay');
   overlay.hidden = false;
   document.getElementById('modalClose').focus();
+
+  let full = null;
+  if (S.online) {
+    try {
+      full = await apiFetch(`/kb/patients/${p.id}`);
+    } catch(e) {
+      // fallback to summary
+    }
+  }
+  document.getElementById('modalBody').innerHTML = renderPatientDetail(p, full);
 }
 
 function closeModal() {
