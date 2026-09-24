@@ -2,11 +2,11 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://anamnese-facil-api.onrender.com/api/$1"
+      "destination": "https://anamnese-facil.onrender.com/api/$1"
     },
     {
       "source": "/health",
-      "destination": "https://anamnese-facil-api.onrender.com/health"
+      "destination": "https://anamnese-facil.onrender.com/health"
     }
   ]
 }

@@ -670,7 +670,7 @@ hr.divider { border: none; border-top: 1px solid var(--border-soft); margin: 16p
 
   <div class="sb-footer">
     <div class="sb-footer-label">Endpoint da API</div>
-    <input type="text" class="api-input" id="apiBase" value="http://localhost:8000/api/v1" autocomplete="off" spellcheck="false">
+    <input type="text" class="api-input" id="apiBase" value="https://anamnese-facil.onrender.com/api/v1" autocomplete="off" spellcheck="false">
     <div class="api-status">
       <span class="dot" id="statusDot"></span>
       <span class="api-status-text" id="statusText">verificando...</span>
@@ -701,7 +701,7 @@ hr.divider { border: none; border-top: 1px solid var(--border-soft); margin: 16p
 <script>
 // ─── State ───────────────────────────────────────────────────────────────────
 const S = {
-  apiBase: 'http://localhost:8000/api/v1',
+  apiBase: 'https://anamnese-facil.onrender.com/api/v1',
   view: 'dashboard',
   online: null,  // null=checking, true=api, false=mock
   stats: null,
