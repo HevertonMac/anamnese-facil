@@ -1,0 +1,52 @@
+# render.yaml — Deploy gratuito do backend no Render.com
+# Docs: https://render.com/docs/yaml-spec
+
+services:
+  - type: web
+    name: anamnese-facil-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    region: oregon
+
+    healthCheckPath: /health
+
+    envVars:
+      # Cole a connection string do Supabase (Direct connection, porta 5432)
+      # Formato: postgresql+asyncpg://postgres.xxxx:SENHA@db.xxxx.supabase.co:5432/postgres
+      - key: DATABASE_URL
+        sync: false
+
+      # Sua chave da OpenAI (necessária para gerar pacientes e embeddings)
+      - key: OPENAI_API_KEY
+        sync: false
+
+      - key: OPENAI_EMBEDDING_MODEL
+        value: text-embedding-3-small
+
+      # Gerada automaticamente pelo Render
+      - key: SECRET_KEY
+        generateValue: true
+
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "30"
+
+      - key: REFRESH_TOKEN_EXPIRE_DAYS
+        value: "7"
+
+      # Substituir pela URL real do frontend após o deploy no Vercel
+      # Ex.: https://anamnese-facil.vercel.app,http://localhost:3000
+      - key: ALLOWED_ORIGINS
+        sync: false
+
+      - key: ENVIRONMENT
+        value: production
+
+      - key: LOG_LEVEL
+        value: INFO
+
+      # Redis — opcional para demo (Celery worker não sobe no free tier)
+      # Se tiver conta no Upstash, cole a URL aqui; caso contrário, deixe vazio
+      - key: REDIS_URL
+        value: ""

@@ -1,16 +1,20 @@
 import { useEffect, useState } from 'react'
 
+// Em produção, VITE_API_URL aponta para o backend no Render.
+// Em desenvolvimento, fica vazio e o proxy do Vite encaminha /api → backend:8000.
+const API = import.meta.env.VITE_API_URL || ''
+
 export default function App() {
   const [health, setHealth] = useState(null)
   const [stats, setStats] = useState(null)
 
   useEffect(() => {
-    fetch('/api/v1/kb/stats')
+    fetch(`${API}/api/v1/kb/stats`)
       .then(r => r.json())
       .then(setStats)
       .catch(() => setStats({ error: 'Backend não conectado' }))
 
-    fetch('/health')
+    fetch(`${API}/health`)
       .then(r => r.json())
       .then(setHealth)
       .catch(() => setHealth({ status: 'offline' }))
@@ -52,7 +56,7 @@ export default function App() {
 
       <p style={{ marginTop: 40, fontSize: 13, color: '#94a3b8' }}>
         Interface em desenvolvimento — Fase 1 (Base de conhecimento) ativa.{' '}
-        <a href="/docs" style={{ color: '#3b82f6' }}>Ver API docs →</a>
+        <a href={`${API}/docs`} style={{ color: '#3b82f6' }}>Ver API docs →</a>
       </p>
     </div>
   )
