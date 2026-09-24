@@ -25,11 +25,19 @@ app.include_router(patient_router, prefix="/api/v1")
 
 @app.on_event("startup")
 async def on_startup() -> None:
+    import re
     from sqlalchemy import text
-    async with engine.begin() as conn:
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        await conn.run_sync(Base.metadata.create_all)
-    log.info("Database tables ready")
+    db_url = os.environ.get("DATABASE_URL", "not set")
+    db_host = re.search(r'@([^:/]+)', db_url)
+    log.warning(f"[DB] Connecting to host: {db_host.group(1) if db_host else 'unknown'}")
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            await conn.run_sync(Base.metadata.create_all)
+        log.warning("[DB] Database tables ready — startup OK")
+    except Exception as e:
+        log.error(f"[DB] Startup connection failed: {e.__class__.__name__}: {e}")
+        log.error("[DB] Service running WITHOUT database — endpoints may fail")
 
 
 @app.get("/health")
