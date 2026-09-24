@@ -44,7 +44,7 @@ EIXO_A_MAP = {
     "gastrointestinal": "gastrointestinal",
     "neurológico": "neurologico", "neurologico": "neurologico",
     "musculoesquelético": "musculoesqueletico", "musculoesqueletico": "musculoesqueletico",
-    "endócrino/metabólico": "endocrino_metabolico", "endocrino/metabolico": "endocrino_metabolico",
+    "endócrino/metabólico": "endocrino_metabolico", "endocrino/metabolico": "endocrino_metabolico", "endocrino_metabolico": "endocrino_metabolico",
     "geniturinário": "geniturinario", "geniturinario": "geniturinario",
 }
 
