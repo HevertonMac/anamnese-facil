@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  # ─────────────────────────────────────────────
+  # Backend — testes Python com pytest
+  # ─────────────────────────────────────────────
+  backend:
+    name: Backend (Python)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Instalar dependências
+        run: pip install -r requirements.txt
+
+      - name: Executar testes
+        env:
+          PYTHONPATH: ${{ github.workspace }}/backend
+          # Variáveis fake para satisfazer pydantic-settings sem banco real
+          DATABASE_URL: postgresql+asyncpg://user:pass@localhost/test
+          SECRET_KEY: ci-secret-key-placeholder
+          OPENAI_API_KEY: sk-placeholder
+        run: pytest -v --tb=short
+
+  # ─────────────────────────────────────────────
+  # Frontend — build Vite
+  # ─────────────────────────────────────────────
+  frontend:
+    name: Frontend (Node)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package.json
+
+      - name: Instalar dependências
+        run: npm install
+
+      - name: Build de produção
+        run: npm run build
