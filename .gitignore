@@ -47,6 +47,5 @@ Thumbs.db
 secrets/
 
 # Clinical case documents (may contain sensitive medical data)
-data/cases/*.docx
 data/cases/*.doc
 data/cases/*.pdf
