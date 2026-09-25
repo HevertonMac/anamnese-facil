@@ -186,3 +186,45 @@ async def trigger_ingestion(cases_dir: str = "/app/data/cases", reset: bool = Fa
     from app.core.tasks import ingest_cases_task
     task = ingest_cases_task.delay(cases_dir=cases_dir, reset=reset)
     return {"task_id": task.id, "status": "queued"}
+
+
+@router.post("/ingest-sync", status_code=status.HTTP_200_OK, tags=["knowledge_base"])
+async def ingest_sync(
+    cases_dir: str = Query(default="/app/data/cases"),
+    reset: bool = Query(default=False),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Runs case ingestion synchronously (no Celery/Redis required).
+    Reads Caso_*.docx, parses with pandoc, upserts patients + chunks + embeddings.
+    Use reset=true to wipe and rebuild from scratch.
+    """
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, "/app")
+    from scripts.ingest.ingest_cases import ingest_case, OPENAI_API_KEY
+
+    cases_path = Path(cases_dir)
+    docx_files = sorted(cases_path.glob("Caso_*.docx"))
+    if not docx_files:
+        raise HTTPException(status_code=404, detail=f"No Caso_*.docx files found in {cases_dir}")
+
+    if reset:
+        await db.execute(text("DELETE FROM knowledge_chunks"))
+        await db.execute(text("DELETE FROM virtual_patients"))
+        await db.commit()
+
+    success, errors = 0, []
+    for docx_path in docx_files:
+        try:
+            await ingest_case(docx_path, db, OPENAI_API_KEY)
+            success += 1
+        except Exception as exc:
+            errors.append({"file": docx_path.name, "error": str(exc)})
+
+    return {
+        "processed": success,
+        "errors": errors,
+        "cases_dir": cases_dir,
+        "reset": reset,
+    }
