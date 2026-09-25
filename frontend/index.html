@@ -1237,18 +1237,31 @@ function renderPatientDetail(p, full) {
   ` : '';
 
   // Perfil comportamental detalhado — vem de raw_sections["caracteristicas_agente"]
-  // (requer reingestão dos casos após fix em SECTION_PATTERNS)
+  // ou de campos estruturados quando raw_sections não está disponível (casos inseridos via SQL)
   const agenteText = cd && cd.raw_sections
     ? (cd.raw_sections['caracteristicas_agente'] || cd.raw_sections['Características do Agente de IA'] || '')
     : '';
-  const agentePerfil = agenteText
+
+  // Fallback: compose a profile from structured fields when raw_sections is absent
+  const agenteFallback = (() => {
+    const src = full || p;
+    const parts = [];
+    if (src.eixo_b) parts.push(`Comportamento: ${src.eixo_b}`);
+    if (src.eixo_c) parts.push(`Perfil socioeconômico: ${src.eixo_c}`);
+    if (cd && cd.historia_social) {
+      if (cd.historia_social.tabagismo) parts.push(`Tabagismo: ${cd.historia_social.tabagismo}`);
+      if (cd.historia_social.etilismo)  parts.push(`Etilismo: ${cd.historia_social.etilismo}`);
+      if (cd.historia_social.texto_livre) parts.push(cd.historia_social.texto_livre);
+    }
+    return parts.join('\n');
+  })();
+
+  const agentePerfil = (agenteText || agenteFallback)
     ? `<div style="background:var(--blue-bg,#eff6ff);border-left:3px solid var(--blue-i,#3b82f6);border-radius:6px;padding:14px 16px;margin-bottom:16px;">
         <div style="font-size:11px;font-weight:700;color:var(--blue-i,#3b82f6);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Perfil do Agente de IA</div>
-        <div style="font-size:13px;color:var(--text);line-height:1.65;white-space:pre-wrap;">${agenteText}</div>
+        <div style="font-size:13px;color:var(--text);line-height:1.65;white-space:pre-wrap;">${agenteText || agenteFallback}</div>
        </div>`
-    : `<div style="font-size:12px;color:var(--text-muted);padding:10px 0 6px;">
-        Texto do perfil nao disponivel — re-ingeste os casos para popular esta secao.
-       </div>`;
+    : '';
 
   const hip = cd && cd.hipoteses_diagnosticas && cd.hipoteses_diagnosticas.length
     ? sectionBlock('Hipoteses Diagnosticas', listItems(cd.hipoteses_diagnosticas)) : '';
@@ -1306,11 +1319,13 @@ async function openPatientModal(p) {
   document.getElementById('modalClose').focus();
 
   let full = null;
-  if (S.online) {
+  if (S.online !== false) {
+    // Attempt fetch even when still connecting (S.online === null)
+    // so cold-start doesn't force demo mode for users who click quickly
     try {
       full = await apiFetch(`/kb/patients/${p.id}`);
     } catch(e) {
-      // fallback to summary
+      // fallback to summary data if API not yet reachable
     }
   }
   document.getElementById('modalBody').innerHTML = renderPatientDetail(p, full);
