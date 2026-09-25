@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
 from app.db.models import KnowledgeChunk, VirtualPatient
@@ -122,6 +122,62 @@ async def knowledge_base_stats(db: AsyncSession = Depends(get_db)):
         "embedded_chunks": embedded_count,
         "embedding_coverage": round(embedded_count / max(chunk_count, 1) * 100, 1),
         "by_clinical_area": {row.eixo_a: row.count for row in by_area},
+    }
+
+
+@router.post("/embed-all", tags=["knowledge_base"])
+async def embed_all_chunks(
+    batch_size: int = Query(default=20, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Generates OpenAI embeddings for all knowledge_chunks with embedding IS NULL.
+    Call once after populating the database. Returns a progress summary.
+    """
+    from app.core.embeddings import get_embeddings_batch
+
+    # Fetch all chunks without embeddings
+    result = await db.execute(
+        select(KnowledgeChunk.id, KnowledgeChunk.content)
+        .where(KnowledgeChunk.embedding.is_(None))
+        .order_by(KnowledgeChunk.id)
+    )
+    rows = result.all()
+
+    if not rows:
+        return {"message": "All chunks already have embeddings.", "updated": 0}
+
+    total = len(rows)
+    updated = 0
+    errors = 0
+
+    for i in range(0, total, batch_size):
+        batch = rows[i : i + batch_size]
+        ids = [r.id for r in batch]
+        texts = [r.content for r in batch]
+
+        try:
+            embeddings = await get_embeddings_batch(texts)
+        except Exception as e:
+            errors += len(batch)
+            continue
+
+        for chunk_id, emb in zip(ids, embeddings):
+            vec_str = "[" + ",".join(f"{v:.8f}" for v in emb) + "]"
+            await db.execute(
+                text(
+                    "UPDATE knowledge_chunks SET embedding = CAST(:emb AS vector) WHERE id = :id"
+                ),
+                {"emb": vec_str, "id": str(chunk_id)},
+            )
+        await db.commit()
+        updated += len(batch)
+
+    return {
+        "message": "Done",
+        "total_without_embedding": total,
+        "updated": updated,
+        "errors": errors,
     }
 
 
