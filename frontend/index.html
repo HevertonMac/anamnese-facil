@@ -748,6 +748,1342 @@ async function apiFetch(path, opts = {}) {
 
 async function checkApi() {
   const base = document.getElementById('apiBase').value.trim().replace('/api/v1', '');
+  S.online = null; // "conectando..."
+  renderApiStatus();
+  const MAX_TRIES = 8;       // até ~45s de tentativas
+  const TIMEOUT_MS = 6000;   // 6s por tentativa (Render free tier pode demorar)
+  const RETRY_MS   = 5000;   // 5s entre tentativas
+  for (let i = 0; i < MAX_TRIES; i++) {
+    try {
+      const signal = AbortSignal.timeout ? AbortSignal.timeout(TIMEOUT_MS) : undefined;
+      const r = await fetch(base + '/health', { signal });
+      if (r.ok) { S.online = true; renderApiStatus(); return; }
+    } catch {}
+    if (i < MAX_TRIES - 1) await new Promise(res => setTimeout(res, RETRY_MS));
+  }
+  S.online = false;
+  renderApiStatus();
+}
+
+function renderApiStatus() {
+  const dot  = document.getElementById('statusDot');
+  const txt  = document.getElementById('statusText');
+  if (S.online === true)  { dot.className = 'dot online';  txt.textContent = 'API conectada'; }
+  else if (S.online === false) { dot.className = 'dot mock'; txt.textContent = 'offline — reconectando...'; }
+  else { dot.className = 'dot connecting'; txt.textContent = 'conectando ao servidor...'; }
+}
+
+// ─── Navigation ───────────────────────────────────────────────────────────────
+function navigate(view) {
+  S.view = view;
+  document.querySelectorAll('.nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.view === view);
+  });
+  const titles = { dashboard: 'Dashboard', patients: 'Pacientes Virtuais', search: 'Busca Semantica', generate: 'Gerar Paciente' };
+  document.getElementById('pageTitle').textContent = titles[view];
+  document.getElementById('topbarRight').innerHTML = '';
+  renderView(view);
+}
+
+document.querySelectorAll('.nav-item').forEach(el => {
+  el.addEventListener('click', () => navigate(el.dataset.view));
+  el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') navigate(el.dataset.view); });
+});
+document.getElementById('apiBase').addEventListener('change', () => { checkApi().then(() => renderView(S.view)); });
+
+// ─── Views ────────────────────────────────────────────────────────────────────
+async function renderView(view) {
+  const el = document.getElementById('viewContent');
+  if (view === 'dashboard') await renderDashboard(el);
+  else if (view === 'patients') await renderPatients(el);
+  else if (view === 'search')   renderSearch(el);
+  else if (view === 'generate') renderGenerate(el);
+}
+
+// DASHBOARD
+async function renderDashboard(el) {
+  el.innerHTML = '<div class="loading-state"><span class="spinner"></span>Carregando...</div>';
+  let stats;
+  try { stats = await apiFetch('/kb/stats'); S.stats = stats; }
+  catch { stats = MOCK.stats; }
+
+  const total = Math.max(1, Object.values(stats.by_clinical_area).reduce((a,b) => a+b, 0));
+  const areaRows = Object.entries(stats.by_clinical_area)
+    .sort((a,b) => b[1] - a[1])
+    .map(([k,v]) => `
+      <div class="area-row">
+        <div class="area-name" title="${k}">${k}</div>
+        <div class="area-track"><div class="area-fill" style="width:${(v/total*100).toFixed(0)}%"></div></div>
+        <div class="area-count">${v}</div>
+      </div>`).join('');
+
+  el.innerHTML = `
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-label">Pacientes</div>
+        <div class="stat-value">${stats.total_patients}</div>
+        <div class="stat-sub">casos cadastrados</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Chunks</div>
+        <div class="stat-value">${stats.total_chunks}</div>
+        <div class="stat-sub">segmentos indexados</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Embutidos</div>
+        <div class="stat-value">${stats.embedded_chunks}</div>
+        <div class="stat-sub">com embedding vetorial</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Cobertura</div>
+        <div class="stat-value">${stats.embedding_coverage}<span style="font-size:16px;color:var(--text-muted)">%</span></div>
+        <div class="stat-sub">dos chunks embutidos</div>
+      </div>
+    </div>
+    <div class="two-col">
+      <div class="card">
+        <div class="card-head"><div class="card-title">Distribuicao por Area Clinica</div></div>
+        <div class="card-body">${areaRows}</div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div class="card-title">Sobre a Base de Conhecimento</div></div>
+        <div class="card-body">
+          <p style="font-size:13.5px;color:var(--text-muted);line-height:1.65;margin-bottom:12px;">
+            A base e composta por casos clinicos validados, extraidos de documentos DOCX e segmentados em chunks semanticos indexados com pgvector.
+          </p>
+          <p style="font-size:13.5px;color:var(--text-muted);line-height:1.65;margin-bottom:16px;">
+            Novos casos podem ser gerados sinteticamente via GPT-4o na aba <strong style="color:var(--text)">Gerar Paciente</strong>, ou ingeridos a partir de arquivos na pasta <code style="font-family:monospace;font-size:12px;background:var(--tint);padding:1px 5px;border-radius:3px;">/data/cases</code>.
+          </p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-primary" onclick="navigate('patients')" style="font-size:13px;padding:7px 14px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2"/></svg>
+              Ver Pacientes
+            </button>
+            <button class="btn btn-ghost" onclick="navigate('generate')" style="font-size:13px;padding:7px 14px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>
+              Gerar Paciente
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  if (S.online === false) {
+    el.insertAdjacentHTML('afterbegin', '<div class="alert alert-warn" style="margin-bottom:18px;">API temporariamente offline. A pagina tentara reconectar automaticamente — aguarde alguns segundos.</div>');
+  }
+}
+
+// PATIENTS
+async function renderPatients(el) {
+  el.innerHTML = '<div class="loading-state"><span class="spinner"></span>Carregando pacientes...</div>';
+  let patients;
+  try {
+    const qs = new URLSearchParams({ active_only: 'true' });
+    if (S.pFilter.eixo_a)       qs.set('eixo_a', S.pFilter.eixo_a);
+    if (S.pFilter.complexidade) qs.set('complexidade', S.pFilter.complexidade);
+    patients = await apiFetch('/kb/patients?' + qs);
+    S.patients = patients;
+  } catch {
+    patients = MOCK.patients;
+    S.patients = patients;
+  }
+
+  const filtered = patients.filter(p =>
+    (!S.pFilter.eixo_a || p.eixo_a === S.pFilter.eixo_a) &&
+    (!S.pFilter.complexidade || p.complexidade === S.pFilter.complexidade)
+  );
+
+  const areas = [...new Set(patients.map(p => p.eixo_a))].sort();
+  const complexidades = ['baixa', 'media', 'alta'];
+
+  const compBadge = c => {
+    const m = { baixa: 'badge-green', media: 'badge-blue', alta: 'badge-warn' };
+    return `<span class="badge ${m[c] || 'badge-gray'}">${c}</span>`;
+  };
+  const sexoLabel = s => s === 'M' ? 'Masculino' : s === 'F' ? 'Feminino' : s;
+
+  const cards = filtered.length ? filtered.map(p => `
+    <div class="patient-card" onclick="openPatientModal(${JSON.stringify(p).replace(/"/g,'&quot;')})" tabindex="0">
+      <div class="pc-number">Caso #${p.case_number}</div>
+      <div class="pc-name">${p.nome}</div>
+      <div class="pc-demo">${p.idade} anos · ${sexoLabel(p.sexo)}</div>
+      <div class="pc-complaint">${p.queixa_principal}</div>
+      <div class="pc-tags">
+        <span class="badge badge-blue">${p.eixo_a}</span>
+        ${compBadge(p.complexidade)}
+      </div>
+    </div>`).join('') :
+    '<div class="empty-state"><strong>Nenhum paciente encontrado</strong>Tente remover os filtros aplicados.</div>';
+
+  el.innerHTML = `
+    ${S.online === false ? '<div class="alert alert-warn" style="margin-bottom:16px;">API offline — exibindo dados de demonstracao.</div>' : ''}
+    <div class="filter-row">
+      <select id="fArea" onchange="S.pFilter.eixo_a=this.value;renderView('patients')">
+        <option value="">Todas as areas</option>
+        ${areas.map(a => `<option value="${a}" ${S.pFilter.eixo_a===a?'selected':''}>${a}</option>`).join('')}
+      </select>
+      <select id="fComp" onchange="S.pFilter.complexidade=this.value;renderView('patients')">
+        <option value="">Qualquer complexidade</option>
+        ${complexidades.map(c => `<option value="${c}" ${S.pFilter.complexidade===c?'selected':''}>${c}</option>`).join('')}
+      </select>
+      <span style="font-size:12.5px;color:var(--text-muted);margin-left:auto;">${filtered.length} paciente${filtered.length!==1?'s':''}</span>
+    </div>
+    <div class="patient-grid">${cards}</div>`;
+}
+
+// SEARCH
+function renderSearch(el) {
+  el.innerHTML = `
+    ${S.online === false ? '<div class="alert alert-warn">API desconectada — busca indisponivel. Configure o endpoint para usar a busca semantica.</div>' : ''}
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-head"><div class="card-title">Busca na Base de Conhecimento</div></div>
+      <div class="card-body">
+        <div class="search-row">
+          <input type="text" id="searchQ" class="search-input" placeholder="Ex: paciente com dor toracica e dispneia..." value="">
+          <select id="searchK" class="form-control" style="width:auto;flex-shrink:0;">
+            <option value="5">Top 5</option>
+            <option value="10">Top 10</option>
+            <option value="20">Top 20</option>
+          </select>
+          <button class="btn btn-primary" onclick="runSearch()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            Buscar
+          </button>
+        </div>
+        <div class="alert alert-info" style="margin-bottom:0;">
+          Com chave OpenAI configurada, a busca usa similaridade cossenoidal (pgvector). Sem chave, usa correspondencia textual ILIKE como fallback.
+        </div>
+      </div>
+    </div>
+    <div id="searchResults"></div>`;
+
+  document.getElementById('searchQ').addEventListener('keydown', e => { if (e.key === 'Enter') runSearch(); });
+}
+
+async function runSearch() {
+  const q = document.getElementById('searchQ').value.trim();
+  if (!q) return;
+  const top_k = parseInt(document.getElementById('searchK').value);
+  const rEl = document.getElementById('searchResults');
+  rEl.innerHTML = '<div class="loading-state"><span class="spinner"></span>Buscando...</div>';
+  try {
+    const results = await apiFetch('/kb/search', {
+      method: 'POST',
+      body: JSON.stringify({ query: q, top_k }),
+    });
+    S.searchResults = results;
+    if (!results.length) {
+      rEl.innerHTML = '<div class="empty-state"><strong>Sem resultados</strong>Tente outros termos de busca.</div>';
+      return;
+    }
+    rEl.innerHTML = `
+      <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px;">${results.length} resultado${results.length!==1?'s':''} para "<strong>${q}</strong>"</div>
+      ${results.map(r => `
+        <div class="result-item">
+          <div class="result-top">
+            <div class="result-patient">${r.patient_name}</div>
+            <div class="result-score">sim. ${r.similarity.toFixed(3)}</div>
+          </div>
+          <div class="result-section">${r.section}</div>
+          <div class="result-content">${r.content}</div>
+        </div>`).join('')}`;
+  } catch(e) {
+    rEl.innerHTML = `<div class="alert alert-error">Erro na busca: ${e.message}. Verifique se a API esta acessivel.</div>`;
+  }
+}
+
+// GENERATE
+function renderGenerate(el) {
+  const genHtml = S.genResult ? `
+    <div class="gen-result">
+      <div class="gen-result-name">${S.genResult.patient.nome}</div>
+      <div class="gen-result-meta">${S.genResult.patient.idade} anos · ${S.genResult.patient.sexo === 'M' ? 'Masculino' : 'Feminino'} · Caso #${S.genResult.patient.case_number}</div>
+      <div class="gen-detail-grid">
+        <div class="gen-detail-item"><div class="gen-detail-label">Area Clinica</div><div class="gen-detail-value">${S.genResult.patient.eixo_a}</div></div>
+        <div class="gen-detail-item"><div class="gen-detail-label">Complexidade</div><div class="gen-detail-value">${S.genResult.patient.complexidade}</div></div>
+        <div class="gen-detail-item"><div class="gen-detail-label">Queixa Principal</div><div class="gen-detail-value">${S.genResult.patient.queixa_principal}</div></div>
+        <div class="gen-detail-item"><div class="gen-detail-label">Diagnostico</div><div class="gen-detail-value">${S.genResult.patient.diagnostico_principal}</div></div>
+        <div class="gen-detail-item"><div class="gen-detail-label">Chunks Ingeridos</div><div class="gen-detail-value">${S.genResult.chunks_ingested}</div></div>
+        <div class="gen-detail-item"><div class="gen-detail-label">Gerado por</div><div class="gen-detail-value">${S.genResult.generated_by}</div></div>
+      </div>
+      ${(() => {
+        const agText = S.genResult.patient.case_data
+          && S.genResult.patient.case_data.raw_sections
+          && S.genResult.patient.case_data.raw_sections.caracteristicas_agente;
+        return agText
+          ? `<div style="margin-top:18px;background:var(--blue-bg,#eff6ff);border-left:3px solid var(--blue-i,#3b82f6);border-radius:6px;padding:14px 16px;">
+               <div style="font-size:11px;font-weight:700;color:var(--blue-i,#3b82f6);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Perfil do Agente de IA</div>
+               <div style="font-size:13px;color:var(--text);line-height:1.65;white-space:pre-wrap;">${agText}</div>
+             </div>`
+          : '';
+      })()}
+      <div style="margin-top:14px;display:flex;gap:8px;">
+        <button class="btn btn-primary" style="font-size:13px;" onclick="navigate('patients')">Ver na lista de pacientes</button>
+        <button class="btn btn-ghost" style="font-size:13px;" onclick="S.genResult=null;renderView('generate')">Gerar outro</button>
+      </div>
+    </div>` : '';
+
+  el.innerHTML = `
+    ${S.online === false ? '<div class="alert alert-warn">API desconectada — a geracao requer conexao com a API e uma chave OpenAI valida.</div>' : ''}
+    <div class="two-col">
+      <div class="card">
+        <div class="card-head"><div class="card-title">Novo Caso Clinico via GPT-4o</div></div>
+        <div class="card-body">
+          <div class="form-group">
+            <label class="form-label" for="gArea">Area Clinica *</label>
+            <select class="form-control" id="gArea">
+              <option value="">Selecione...</option>
+              <option value="cardiovascular">Cardiologia / Cardiovascular</option>
+              <option value="respiratorio">Respiratorio / Pneumologia</option>
+              <option value="gastrointestinal">Gastroenterologia</option>
+              <option value="neurologico">Neurologia</option>
+              <option value="musculoesqueletico">Musculoesqueletico / Reumatologia</option>
+              <option value="endocrino_metabolico">Endocrinologia / Metabolismo</option>
+              <option value="geniturinario">Geniturinario / Nefrologia</option>
+            </select>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label" for="gComp">Complexidade</label>
+              <select class="form-control" id="gComp">
+                <option value="media">Media</option>
+                <option value="baixa">Baixa</option>
+                <option value="alta">Alta</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="gPerfil">Perfil Comportamental</label>
+              <select class="form-control" id="gPerfil">
+                <option value="colaborativo">Colaborativo</option>
+                <option value="ansioso">Ansioso</option>
+                <option value="resistente">Resistente</option>
+                <option value="confuso">Confuso</option>
+                <option value="minimizador">Minimizador</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="gEixoC">Perfil Socioeconomico</label>
+              <select class="form-control" id="gEixoC">
+                <option value="baixo_letramento_vulneravel">Baixo letramento / Vulneravel</option>
+                <option value="medio_letramento_media">Medio letramento / Classe media</option>
+                <option value="alto_letramento_bom_acesso">Alto letramento / Bom acesso</option>
+                <option value="pediatrico">Pediatrico</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="gSexo">Sexo</label>
+              <select class="form-control" id="gSexo">
+                <option value="">Qualquer</option>
+                <option value="M">Masculino</option>
+                <option value="F">Feminino</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="gFaixa">Faixa Etaria</label>
+              <select class="form-control" id="gFaixa">
+                <option value="">Qualquer</option>
+                <option value="crianca">Crianca (0-12)</option>
+                <option value="adolescente">Adolescente (13-17)</option>
+                <option value="adulto">Adulto (18-59)</option>
+                <option value="idoso">Idoso (60+)</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="gExtra">Instrucoes Extras</label>
+            <textarea class="form-control" id="gExtra" placeholder="Ex: paciente com historico de HAS e DM2, morador de zona rural..."></textarea>
+            <div class="form-hint">Contexto adicional que o modelo devera incluir no caso gerado.</div>
+          </div>
+          <button class="btn btn-primary" id="genBtn" onclick="runGenerate()" style="width:100%;justify-content:center;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>
+            Gerar Paciente
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <div class="card" style="margin-bottom:14px;">
+          <div class="card-head"><div class="card-title">Como funciona</div></div>
+          <div class="card-body">
+            <p style="font-size:13px;color:var(--text-muted);line-height:1.65;margin-bottom:10px;">
+              O GPT-4o gera um caso clinico completo em JSON estruturado com todas as secoes de anamnese: identificacao, queixa principal, historia da doenca atual, interrogatorio complementar, historias fisiologica, patologica, familiar e social, exame fisico e hipoteses diagnosticas.
+            </p>
+            <p style="font-size:13px;color:var(--text-muted);line-height:1.65;">
+              O caso e persistido automaticamente na base de dados e indexado como chunks semanticos com embeddings, ficando disponivel imediatamente para busca e simulacao de entrevista.
+            </p>
+          </div>
+        </div>
+        <div id="genFeedback">${genHtml}</div>
+      </div>
+    </div>`;
+}
+
+async function runGenerate() {
+  const area = document.getElementById('gArea').value;
+  if (!area) { document.getElementById('gArea').focus(); return; }
+
+  const btn = document.getElementById('genBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Gerando...';
+
+  const feedback = document.getElementById('genFeedback');
+  feedback.innerHTML = '<div class="alert alert-info">Chamando GPT-4o... isso pode levar alguns segundos.</div>';
+
+  const body = {
+    eixo_a: area,
+    complexidade: document.getElementById('gComp').value,
+    eixo_b: document.getElementById('gPerfil').value,
+    eixo_c: document.getElementById('gEixoC').value,
+  };
+  const sexo = document.getElementById('gSexo').value;
+  const faixa = document.getElementById('gFaixa').value;
+  const extra = document.getElementById('gExtra').value.trim();
+  if (sexo) body.sexo = sexo;
+  if (faixa) body.faixa_etaria = faixa;
+  if (extra) body.instrucoes_extras = extra;
+
+  try {
+    const result = await apiFetch('/patients/generate', { method: 'POST', body: JSON.stringify(body) });
+    S.genResult = result;
+    feedback.innerHTML = `
+      <div class="gen-result">
+        <div class="gen-result-name">${result.patient.nome}</div>
+        <div class="gen-result-meta">${result.patient.idade} anos · ${result.patient.sexo === 'M' ? 'Masculino' : 'Feminino'} · Caso #${result.patient.case_number}</div>
+        <div class="gen-detail-grid">
+          <div class="gen-detail-item"><div class="gen-detail-label">Area</div><div class="gen-detail-value">${result.patient.eixo_a}</div></div>
+          <div class="gen-detail-item"><div class="gen-detail-label">Complexidade</div><div class="gen-detail-value">${result.patient.complexidade}</div></div>
+          <div class="gen-detail-item"><div class="gen-detail-label">Queixa</div><div class="gen-detail-value">${result.patient.queixa_principal}</div></div>
+          <div class="gen-detail-item"><div class="gen-detail-label">Diagnostico</div><div class="gen-detail-value">${result.patient.diagnostico_principal}</div></div>
+          <div class="gen-detail-item"><div class="gen-detail-label">Chunks</div><div class="gen-detail-value">${result.chunks_ingested} ingeridos</div></div>
+          <div class="gen-detail-item"><div class="gen-detail-label">Modelo</div><div class="gen-detail-value">${result.generated_by}</div></div>
+        </div>
+        <div style="margin-top:14px;display:flex;gap:8px;">
+          <button class="btn btn-primary" style="font-size:13px;" onclick="navigate('patients')">Ver na lista</button>
+          <button class="btn btn-ghost" style="font-size:13px;" onclick="S.genResult=null;renderView('generate')">Gerar outro</button>
+        </div>
+      </div>`;
+  } catch(e) {
+    feedback.innerHTML = `<div class="alert alert-error">Erro ao gerar: ${e.message}. Verifique o endpoint e a chave OpenAI.</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="14" height="14"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>Gerar Paciente';
+  }
+}
+
+// ─── Modal ────────────────────────────────────────────────────────────────────
+const sexoLabel = s => s === 'M' ? 'Masculino' : s === 'F' ? 'Feminino' : (s || '—');
+const compBadge = c => { const m={baixa:'badge-green',media:'badge-blue',alta:'badge-warn'}; return `<span class="badge ${m[c]||'badge-gray'}">${c}</span>`; };
+const eixoBadge = b => {
+  const m = {
+    colaborativo: ['badge-green', 'Colaborativo'],
+    ansioso:      ['badge-warn',  'Ansioso'],
+    resistente:   ['badge-warn',  'Resistente'],
+    confuso:      ['badge-gray',  'Confuso'],
+    minimizador:  ['badge-gray',  'Minimizador'],
+  };
+  const [cls, label] = m[b] || ['badge-gray', b || '—'];
+  return `<span class="badge ${cls}">${label}</span>`;
+};
+const eixoCLabel = c => {
+  const m = {
+    baixo_letramento_vulneravel:  'Baixo letramento / vulneravel',
+    alto_letramento_bom_acesso:   'Alto letramento / bom acesso',
+    medio_letramento_media:       'Medio letramento / media',
+    pediatrico:                   'Pediatrico',
+  };
+  return m[c] || c || '—';
+};
+
+function listItems(arr) {
+  if (!arr || !arr.length) return '<span style="color:var(--text-muted)">Nenhum</span>';
+  return arr.map(i => `<span class="badge badge-gray" style="margin:2px 3px 2px 0;display:inline-block;">${i}</span>`).join('');
+}
+
+function sectionBlock(title, html) {
+  if (!html) return '';
+  return `<div class="detail-section">${title}</div><div class="detail-text">${html}</div>`;
+}
+
+function renderPatientDetail(p, full) {
+  const cd = full ? full.case_data : null;
+  const id_extra = cd && cd.identificacao ? `
+      <div class="detail-pair"><dt>Profissao</dt><dd>${cd.identificacao.profissao || '—'}</dd></div>
+      <div class="detail-pair"><dt>Estado Civil</dt><dd>${cd.identificacao.estado_civil || '—'}</dd></div>
+      <div class="detail-pair"><dt>Naturalidade</dt><dd>${cd.identificacao.naturalidade || '—'}</dd></div>
+      <div class="detail-pair"><dt>Residencia</dt><dd>${cd.identificacao.residencia || '—'}</dd></div>` : '';
+
+  const hda = cd ? sectionBlock('Historia da Doenca Atual', cd.historia_doenca_atual) : '';
+
+  const hpath = cd && cd.historia_patologica ? `
+    ${sectionBlock('Doencas Previas', listItems(cd.historia_patologica.doencas_previas))}
+    ${sectionBlock('Medicamentos em Uso', listItems(cd.historia_patologica.medicamentos_em_uso))}
+    ${sectionBlock('Alergias', listItems(cd.historia_patologica.alergias))}
+    ${sectionBlock('Cirurgias', listItems(cd.historia_patologica.cirurgias))}
+    ${sectionBlock('Internacoes', listItems(cd.historia_patologica.internacoes))}
+    ${cd.historia_patologica.texto_livre ? sectionBlock('Obs. Patologica', cd.historia_patologica.texto_livre) : ''}
+  ` : '';
+
+  const hfam = cd && cd.historia_familiar && cd.historia_familiar.texto_livre
+    ? sectionBlock('Historia Familiar', cd.historia_familiar.texto_livre) : '';
+
+  const hsoc = cd && cd.historia_social ? `
+    ${cd.historia_social.tabagismo ? sectionBlock('Tabagismo', cd.historia_social.tabagismo) : ''}
+    ${cd.historia_social.etilismo ? sectionBlock('Etilismo', cd.historia_social.etilismo) : ''}
+    ${cd.historia_social.texto_livre ? sectionBlock('Historia Social', cd.historia_social.texto_livre) : ''}
+  ` : '';
+
+  const efisico = cd && cd.exame_fisico ? `
+    ${cd.exame_fisico.estado_geral ? sectionBlock('Estado Geral', cd.exame_fisico.estado_geral) : ''}
+    ${cd.exame_fisico.texto_livre ? sectionBlock('Exame Fisico', cd.exame_fisico.texto_livre) : ''}
+  ` : '';
+
+  // Perfil comportamental detalhado — vem de raw_sections["caracteristicas_agente"]
+  // (requer reingestão dos casos após fix em SECTION_PATTERNS)
+  const agenteText = cd && cd.raw_sections
+    ? (cd.raw_sections['caracteristicas_agente'] || cd.raw_sections['Características do Agente de IA'] || '')
+    : '';
+  const agentePerfil = agenteText
+    ? `<div style="background:var(--blue-bg,#eff6ff);border-left:3px solid var(--blue-i,#3b82f6);border-radius:6px;padding:14px 16px;margin-bottom:16px;">
+        <div style="font-size:11px;font-weight:700;color:var(--blue-i,#3b82f6);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Perfil do Agente de IA</div>
+        <div style="font-size:13px;color:var(--text);line-height:1.65;white-space:pre-wrap;">${agenteText}</div>
+       </div>`
+    : `<div style="font-size:12px;color:var(--text-muted);padding:10px 0 6px;">
+        Texto do perfil nao disponivel — re-ingeste os casos para popular esta secao.
+       </div>`;
+
+  const hip = cd && cd.hipoteses_diagnosticas && cd.hipoteses_diagnosticas.length
+    ? sectionBlock('Hipoteses Diagnosticas', listItems(cd.hipoteses_diagnosticas)) : '';
+
+  const diag = cd && cd.diagnostico_completo
+    ? sectionBlock('Diagnostico Completo', cd.diagnostico_completo)
+    : (p.diagnostico_principal ? sectionBlock('Diagnostico Principal', p.diagnostico_principal) : '');
+
+  const rawSecs = cd && cd.raw_sections && Object.keys(cd.raw_sections).length
+    ? `<div class="detail-section" style="margin-top:20px;cursor:pointer;" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden">
+        Secoes Brutas do Documento <span style="font-size:11px;color:var(--blue-i)">(expandir)</span>
+       </div>
+       <div hidden style="margin-bottom:12px;">
+         ${Object.entries(cd.raw_sections).map(([k,v]) => `
+           <div style="margin-bottom:14px;">
+             <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">${k}</div>
+             <div style="font-size:13px;color:var(--text);line-height:1.6;white-space:pre-wrap;">${v}</div>
+           </div>`).join('')}
+       </div>` : '';
+
+  const notFull = !full
+    ? `<div class="alert alert-warn" style="margin-top:16px;font-size:12.5px;">Dados de demonstracao — conecte a API para ver o caso completo.</div>` : '';
+
+  return `
+    <dl>
+      <div class="detail-pair"><dt>Caso</dt><dd>#${p.case_number}</dd></div>
+      <div class="detail-pair"><dt>Idade</dt><dd>${p.idade} anos</dd></div>
+      <div class="detail-pair"><dt>Sexo</dt><dd>${sexoLabel(p.sexo)}</dd></div>
+      <div class="detail-pair"><dt>Area Clinica</dt><dd><span class="badge badge-blue">${p.eixo_a}</span></dd></div>
+      <div class="detail-pair"><dt>Complexidade</dt><dd>${compBadge(p.complexidade)}</dd></div>
+      <div class="detail-pair"><dt>Perfil Comportamental</dt><dd>${eixoBadge((full||p).eixo_b)}</dd></div>
+      <div class="detail-pair"><dt>Perfil Socioeconomico</dt><dd>${eixoCLabel((full||p).eixo_c)}</dd></div>
+      ${id_extra}
+    </dl>
+    <hr class="divider">
+    ${sectionBlock('Queixa Principal', p.queixa_principal)}
+    ${hda}
+    ${hpath}
+    ${hfam}
+    ${hsoc}
+    ${efisico}
+    ${agentePerfil}
+    ${hip}
+    ${diag}
+    ${rawSecs}
+    ${notFull}
+  `;
+}
+
+async function openPatientModal(p) {
+  document.getElementById('modalTitle').textContent = p.nome;
+  document.getElementById('modalBody').innerHTML = '<div style="padding:32px;text-align:center;color:var(--text-muted);font-size:13px;">Carregando dados do caso...</div>';
+  const overlay = document.getElementById('modalOverlay');
+  overlay.hidden = false;
+  document.getElementById('modalClose').focus();
+
+  let full = null;
+  if (S.online) {
+    try {
+      full = await apiFetch(`/kb/patients/${p.id}`);
+    } catch(e) {
+      // fallback to summary
+    }
+  }
+  document.getElementById('modalBody').innerHTML = renderPatientDetail(p, full);
+}
+
+function closeModal() {
+  document.getElementById('modalOverlay').hidden = true;
+}
+
+document.getElementById('modalOverlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('modalOverlay')) closeModal();
+});
+document.getElementById('modalClose').addEventListener('click', closeModal);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+async function initAndRender() {
+  renderView('dashboard');
+  await checkApi();
+  renderView(S.view); // re-render after API check to remove demo banners if online
+}
+initAndRender();
+</script>
+<script>document.documentElement.setAttribute("data-theme","light")</script>
+<title>Anamnese Facil</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap">
+<style>
+:root {
+  --navy:        #0C2040;
+  --navy-hover:  #132E58;
+  --navy-active: rgba(46,106,230,0.18);
+  --blue-p:      #1B4FCC;
+  --blue-i:      #2E6AE6;
+  --blue-200:    #93B8F5;
+  --blue-100:    #CAD7F0;
+  --blue-50:     #EBF1FC;
+  --tint:        #F1F6FF;
+  --surface:     #FFFFFF;
+  --border:      #CAD7F0;
+  --border-soft: #E2EAF8;
+  --text:        #0F1A2E;
+  --text-muted:  #62739A;
+  --text-on-nav: rgba(255,255,255,0.55);
+  --success:     #0A7A4B;
+  --success-bg:  #E8F8F1;
+  --warn:        #B45309;
+  --warn-bg:     #FEF3C7;
+  --danger:      #B91C1C;
+  --danger-bg:   #FEE2E2;
+  color-scheme: light;
+}
+[hidden]{display:none!important}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --navy:        #060F1E;
+    --navy-hover:  #0D1F3C;
+    --navy-active: rgba(46,106,230,0.2);
+    --blue-p:      #3B78F0;
+    --blue-i:      #5490F5;
+    --blue-200:    #2A4A80;
+    --blue-100:    #1A3260;
+    --blue-50:     #0F2244;
+    --tint:        #0D1B33;
+    --surface:     #101E36;
+    --border:      #1E3560;
+    --border-soft: #162B50;
+    --text:        #DCE7F8;
+    --text-muted:  #6E8AB8;
+    --text-on-nav: rgba(220,231,248,0.5);
+    --success:     #10B77A;
+    --success-bg:  #072E1E;
+    --warn:        #D97706;
+    --warn-bg:     #2A1F08;
+    --danger:      #EF4444;
+    --danger-bg:   #2C0D0D;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --navy:        #060F1E;
+  --navy-hover:  #0D1F3C;
+  --navy-active: rgba(46,106,230,0.2);
+  --blue-p:      #3B78F0;
+  --blue-i:      #5490F5;
+  --blue-200:    #2A4A80;
+  --blue-100:    #1A3260;
+  --blue-50:     #0F2244;
+  --tint:        #0D1B33;
+  --surface:     #101E36;
+  --border:      #1E3560;
+  --border-soft: #162B50;
+  --text:        #DCE7F8;
+  --text-muted:  #6E8AB8;
+  --text-on-nav: rgba(220,231,248,0.5);
+  --success:     #10B77A;
+  --success-bg:  #072E1E;
+  --warn:        #D97706;
+  --warn-bg:     #2A1F08;
+  --danger:      #EF4444;
+  --danger-bg:   #2C0D0D;
+  color-scheme: dark;
+}
+
+*,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background: var(--tint);
+  color: var(--text);
+  display: flex;
+  min-height: 100%;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ── SIDEBAR ── */
+.sidebar {
+  width: 216px;
+  min-width: 216px;
+  background: var(--navy);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 100;
+  overflow: hidden;
+}
+
+.sb-logo {
+  padding: 20px 18px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+.sb-logo-name {
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 700;
+  font-size: 15px;
+  color: #fff;
+  letter-spacing: -0.01em;
+}
+.sb-logo-sub {
+  font-size: 11px;
+  color: var(--text-on-nav);
+  margin-top: 2px;
+  letter-spacing: 0.01em;
+}
+
+.sb-nav { flex: 1; padding: 10px 0; }
+.sb-section {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.28);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 10px 18px 5px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 18px;
+  color: var(--text-on-nav);
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  border-left: 2px solid transparent;
+  user-select: none;
+}
+.nav-item:hover { background: var(--navy-hover); color: rgba(255,255,255,0.82); }
+.nav-item.active {
+  background: var(--navy-active);
+  color: #fff;
+  border-left-color: var(--blue-i);
+}
+.nav-item svg { width: 15px; height: 15px; flex-shrink: 0; stroke-width: 1.75; }
+
+.sb-footer {
+  border-top: 1px solid rgba(255,255,255,0.07);
+  padding: 14px 18px;
+}
+.sb-footer-label {
+  font-size: 10.5px;
+  color: rgba(255,255,255,0.3);
+  margin-bottom: 5px;
+}
+.api-input {
+  width: 100%;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 5px;
+  padding: 5px 8px;
+  font-size: 11px;
+  color: rgba(255,255,255,0.7);
+  font-family: 'Inter', monospace;
+  transition: border-color 0.12s;
+}
+.api-input:focus { outline: none; border-color: var(--blue-i); }
+.api-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+}
+.dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.2);
+  flex-shrink: 0;
+  transition: background 0.3s;
+}
+.dot.online  { background: #22C55E; }
+.dot.offline { background: #EF4444; }
+.dot.mock    { background: #F59E0B; }
+.api-status-text { font-size: 11px; color: rgba(255,255,255,0.35); }
+
+/* ── MAIN ── */
+.main {
+  margin-left: 216px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.topbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-soft);
+  padding: 0 24px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 50;
+}
+.topbar-title {
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text);
+}
+.topbar-right { display: flex; align-items: center; gap: 8px; }
+
+.content { flex: 1; padding: 24px; }
+
+/* ── BUTTONS ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13.5px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.btn-primary  { background: var(--blue-p); color: #fff; }
+.btn-primary:hover { background: var(--blue-i); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-ghost {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text);
+}
+.btn-ghost:hover { background: var(--blue-50); border-color: var(--blue-100); }
+.btn svg { width: 14px; height: 14px; stroke-width: 2; }
+
+/* ── STATS ── */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  padding: 18px 20px;
+}
+.stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+.stat-value {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 30px;
+  font-weight: 700;
+  color: var(--blue-p);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.stat-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 5px;
+}
+
+/* ── CARDS ── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  overflow: hidden;
+}
+.card-head {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-soft);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.card-title {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.card-body { padding: 20px; }
+
+/* ── TABLE ── */
+.tbl-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+th {
+  text-align: left;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 9px 16px;
+  background: var(--tint);
+  border-bottom: 1px solid var(--border-soft);
+  white-space: nowrap;
+}
+td {
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text);
+  vertical-align: middle;
+}
+tr:last-child td { border-bottom: none; }
+tbody tr:hover td { background: var(--blue-50); cursor: pointer; }
+
+/* ── BADGES ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 100px;
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.badge-blue   { background: var(--blue-50); color: var(--blue-p); }
+.badge-green  { background: var(--success-bg); color: var(--success); }
+.badge-warn   { background: var(--warn-bg); color: var(--warn); }
+.badge-danger { background: var(--danger-bg); color: var(--danger); }
+.badge-gray   { background: var(--tint); color: var(--text-muted); }
+
+/* ── FORM ── */
+.form-group { margin-bottom: 16px; }
+.form-label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 5px;
+}
+.form-control {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13.5px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--surface);
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.form-control:focus {
+  outline: none;
+  border-color: var(--blue-i);
+  box-shadow: 0 0 0 3px rgba(46,106,230,0.12);
+}
+select.form-control { cursor: pointer; }
+textarea.form-control { resize: vertical; min-height: 80px; }
+.form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.form-hint { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+/* ── AREA BARS ── */
+.area-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 9px;
+  font-size: 13px;
+}
+.area-name {
+  width: 148px;
+  flex-shrink: 0;
+  color: var(--text);
+  font-weight: 500;
+  text-transform: capitalize;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.area-track {
+  flex: 1;
+  height: 6px;
+  background: var(--border-soft);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.area-fill {
+  height: 100%;
+  background: var(--blue-p);
+  border-radius: 3px;
+  transition: width 0.5s ease;
+}
+.area-count {
+  width: 22px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── PATIENT CARDS ── */
+.patient-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 12px;
+}
+.patient-card {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  padding: 16px;
+  cursor: pointer;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.patient-card:hover {
+  border-color: var(--blue-200);
+  box-shadow: 0 2px 10px rgba(27,79,204,0.08);
+}
+.pc-number {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+.pc-name {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+.pc-demo {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+.pc-complaint {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.45;
+  margin-bottom: 12px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.pc-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* ── SEARCH RESULTS ── */
+.result-item {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 8px;
+  transition: border-color 0.12s;
+}
+.result-item:hover { border-color: var(--blue-200); }
+.result-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.result-patient { font-size: 13px; font-weight: 600; color: var(--blue-p); }
+.result-score { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.result-section {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 5px;
+}
+.result-content { font-size: 13.5px; color: var(--text); line-height: 1.5; }
+
+/* ── ALERTS ── */
+.alert {
+  padding: 11px 14px;
+  border-radius: 7px;
+  font-size: 13.5px;
+  border: 1px solid;
+  margin-bottom: 16px;
+  line-height: 1.45;
+}
+.alert-info    { background: var(--blue-50); border-color: var(--blue-100); color: var(--blue-p); }
+.alert-success { background: var(--success-bg); border-color: #A7F3D0; color: var(--success); }
+.alert-warn    { background: var(--warn-bg); border-color: #FDE68A; color: var(--warn); }
+.alert-error   { background: var(--danger-bg); border-color: #FECACA; color: var(--danger); }
+
+/* ── GENERATED CARD ── */
+.gen-result {
+  background: var(--blue-50);
+  border: 1px solid var(--blue-100);
+  border-radius: 9px;
+  padding: 20px;
+  margin-top: 20px;
+}
+.gen-result-name {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--blue-p);
+  margin-bottom: 3px;
+}
+.gen-result-meta { font-size: 13px; color: var(--text-muted); margin-bottom: 12px; }
+.gen-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 20px; }
+.gen-detail-item { }
+.gen-detail-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px; }
+.gen-detail-value { font-size: 13.5px; color: var(--text); }
+
+/* ── MODAL ── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10,24,48,0.5);
+  z-index: 300;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 48px 20px;
+  overflow-y: auto;
+}
+.modal {
+  background: var(--surface);
+  border-radius: 10px;
+  width: 100%;
+  max-width: 760px;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+}
+.modal-head {
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--border-soft);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.modal-title { font-family: 'DM Sans', sans-serif; font-size: 15px; font-weight: 600; }
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.modal-close:hover { color: var(--text); background: var(--tint); }
+.modal-body { padding: 22px; overflow-y: auto; flex: 1; }
+
+.detail-pair { display: flex; gap: 16px; margin-bottom: 10px; font-size: 13.5px; }
+.detail-pair dt { width: 150px; flex-shrink: 0; font-weight: 500; color: var(--text-muted); }
+.detail-pair dd { color: var(--text); }
+.detail-section { font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin: 18px 0 10px; }
+.detail-text { font-size: 13.5px; color: var(--text); line-height: 1.6; }
+hr.divider { border: none; border-top: 1px solid var(--border-soft); margin: 16px 0; }
+
+/* ── MISC ── */
+.loading-state, .empty-state {
+  text-align: center;
+  padding: 48px 20px;
+  color: var(--text-muted);
+  font-size: 13.5px;
+}
+.empty-state strong { display: block; font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 5px; }
+.spinner {
+  display: inline-block;
+  width: 18px; height: 18px;
+  border: 2px solid var(--blue-100);
+  border-top-color: var(--blue-p);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.filter-row { display: flex; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; align-items: center; }
+.filter-row select, .filter-row input {
+  padding: 7px 11px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--surface);
+}
+.filter-row select:focus, .filter-row input:focus { outline: none; border-color: var(--blue-i); }
+.search-row { display: flex; gap: 8px; margin-bottom: 18px; }
+.search-input {
+  flex: 1;
+  padding: 9px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13.5px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--surface);
+}
+.search-input:focus { outline: none; border-color: var(--blue-i); box-shadow: 0 0 0 3px rgba(46,106,230,0.1); }
+
+@media (max-width: 720px) {
+  .sidebar { display: none; }
+  .main { margin-left: 0; }
+  .stats-row { grid-template-columns: repeat(2, 1fr); }
+  .form-grid-2 { grid-template-columns: 1fr; }
+  .two-col { grid-template-columns: 1fr; }
+  .gen-detail-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 480px) {
+  .stats-row { grid-template-columns: 1fr 1fr; }
+  .content { padding: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none; }
+  * { transition: none !important; }
+}
+</style>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="sb-logo">
+    <div class="sb-logo-name">Anamnese Facil</div>
+    <div class="sb-logo-sub">PPGCC / UFPI</div>
+  </div>
+
+  <nav class="sb-nav">
+    <div class="sb-section">Principal</div>
+    <div class="nav-item active" data-view="dashboard" tabindex="0">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+      Dashboard
+    </div>
+    <div class="nav-item" data-view="patients" tabindex="0">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2"/><path d="M16 3.13a4 4 0 010 7.75"/><path d="M21 21v-2a4 4 0 00-3-3.87"/></svg>
+      Pacientes
+    </div>
+
+    <div class="sb-section" style="margin-top:4px;">Ferramentas</div>
+    <div class="nav-item" data-view="search" tabindex="0">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      Busca Semantica
+    </div>
+    <div class="nav-item" data-view="generate" tabindex="0">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>
+      Gerar Paciente
+    </div>
+  </nav>
+
+  <div class="sb-footer">
+    <div class="sb-footer-label">Endpoint da API</div>
+    <input type="text" class="api-input" id="apiBase" value="https://anamnese-facil.onrender.com/api/v1" autocomplete="off" spellcheck="false">
+    <div class="api-status">
+      <span class="dot" id="statusDot"></span>
+      <span class="api-status-text" id="statusText">verificando...</span>
+    </div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<main class="main">
+  <div class="topbar">
+    <div class="topbar-title" id="pageTitle">Dashboard</div>
+    <div class="topbar-right" id="topbarRight"></div>
+  </div>
+  <div class="content" id="viewContent"></div>
+</main>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modalOverlay" hidden>
+  <div class="modal" id="modal" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <div class="modal-title" id="modalTitle"></div>
+      <button class="modal-close" id="modalClose" aria-label="Fechar">&#215;</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+// ─── State ───────────────────────────────────────────────────────────────────
+const S = {
+  apiBase: 'https://anamnese-facil.onrender.com/api/v1',
+  view: 'dashboard',
+  online: null,  // null=checking, true=api, false=mock
+  stats: null,
+  patients: [],
+  pFilter: { eixo_a: '', complexidade: '' },
+  searchResults: [],
+  genResult: null,
+  loading: { stats: false, patients: false, search: false, generate: false },
+};
+
+// ─── Mock data ────────────────────────────────────────────────────────────────
+const MOCK = {
+  stats: {
+    total_patients: 10,
+    total_chunks: 142,
+    embedded_chunks: 127,
+    embedding_coverage: 89.4,
+    by_clinical_area: { cardiologia: 2, respiratorio: 2, neurologia: 2, endocrinologia: 2, gastroenterologia: 1, psiquiatria: 1 }
+  },
+  patients: [
+    { id:'m1', case_number:1, nome:'Carlos Mendes', idade:62, sexo:'M', eixo_a:'cardiologia', complexidade:'alta', queixa_principal:'Dor precordial em aperto há 3 dias com irradiação para o braço esquerdo', is_active:true },
+    { id:'m2', case_number:2, nome:'Silvia Ramos', idade:45, sexo:'F', eixo_a:'respiratorio', complexidade:'media', queixa_principal:'Dispneia progressiva aos pequenos esforços há 2 semanas', is_active:true },
+    { id:'m3', case_number:3, nome:'Eduardo Torres', idade:38, sexo:'M', eixo_a:'neurologia', complexidade:'alta', queixa_principal:'Cefaleia intensa de início súbito com visão dupla', is_active:true },
+    { id:'m4', case_number:4, nome:'Patricia Lima', idade:55, sexo:'F', eixo_a:'endocrinologia', complexidade:'media', queixa_principal:'Perda de peso involuntária de 8 kg em 3 meses', is_active:true },
+    { id:'m5', case_number:5, nome:'Roberto Farias', idade:70, sexo:'M', eixo_a:'cardiologia', complexidade:'alta', queixa_principal:'Palpitações irregulares e tontura ao se levantar', is_active:true },
+    { id:'m6', case_number:6, nome:'Livio Costa', idade:22, sexo:'M', eixo_a:'endocrinologia', complexidade:'baixa', queixa_principal:'Poliuria, polidipsia e emagrecimento há 1 mês', is_active:true },
+    { id:'m7', case_number:7, nome:'Luna Ferreira', idade:30, sexo:'F', eixo_a:'psiquiatria', complexidade:'media', queixa_principal:'Tristeza persistente, insônia e perda de interesse nas atividades', is_active:true },
+    { id:'m8', case_number:8, nome:'Olivia Santos', idade:48, sexo:'F', eixo_a:'neurologia', complexidade:'media', queixa_principal:'Artralgia simétrica nas pequenas articulações das mãos pela manhã', is_active:true },
+    { id:'m9', case_number:9, nome:'Andre Moura', idade:65, sexo:'M', eixo_a:'gastroenterologia', complexidade:'alta', queixa_principal:'Dor abdominal em hipocôndrio direito e icterícia progressiva', is_active:true },
+    { id:'m10', case_number:10, nome:'Fernanda Alves', idade:52, sexo:'F', eixo_a:'respiratorio', complexidade:'baixa', queixa_principal:'Tosse crônica produtiva matinal há mais de 3 meses', is_active:true },
+  ]
+};
+
+// ─── API helpers ──────────────────────────────────────────────────────────────
+async function apiFetch(path, opts = {}) {
+  const url = document.getElementById('apiBase').value.trim() + path;
+  const r = await fetch(url, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+async function checkApi() {
+  const base = document.getElementById('apiBase').value.trim().replace('/api/v1', '');
   try {
     await fetch(base + '/health', { signal: AbortSignal.timeout ? AbortSignal.timeout(3000) : undefined });
     S.online = true;
