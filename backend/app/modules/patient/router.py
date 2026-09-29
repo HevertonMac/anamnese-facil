@@ -40,6 +40,7 @@ EIXO_A_LABELS = {
     "musculoesqueletico": "musculoesquelético",
     "endocrino_metabolico": "endócrino/metabólico",
     "geniturinario": "geniturinário",
+    "infectoparasitario": "infectoparasitário",
 }
 
 EIXO_B_LABELS = {
