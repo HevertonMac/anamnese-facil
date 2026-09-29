@@ -169,7 +169,11 @@ SAMPLE_CASE_JSON = {
         "residencia": "Teresina, PI",
         "naturalidade": "Piripiri, PI",
     },
-    "interrogatorio_complementar": "Nega dispneia em repouso. Nega tosse.",
+    "interrogatorio_complementar": {
+        "cabeca": "Nega cefaleia ou tonturas.",
+        "aparelho_respiratorio_circulatorio": "Nega dispneia em repouso. Nega tosse. Confirma palpitações ocasionais.",
+        "aparelho_digestivo": "Nega náuseas, vômitos ou icterícia.",
+    },
     "historia_fisiologica": "Desenvolvimento sem intercorrências.",
     "historia_patologica": {
         "doencas_previas": ["HAS", "DM2"],
@@ -185,7 +189,15 @@ SAMPLE_CASE_JSON = {
         "etilismo": "nega uso de álcool",
         "texto_livre": "Ensino fundamental incompleto. Mora em zona rural.",
     },
-    "exame_fisico": "PA 145/90 mmHg. FC 78 bpm. Regular. Sem sopros.",
+    "exame_fisico": {
+        "sinais_vitais": {
+            "pa": "145/90 mmHg", "fc": "78 bpm", "fr": "18 irpm", "tax": "36,4°C",
+            "spo2": "97% em ar ambiente", "peso": "82 kg", "altura": "1,68 m", "imc": "29,1 kg/m²",
+        },
+        "geral": "Bom estado geral, corado, hidratado, orientado.",
+        "cardiovascular": "Ritmo regular em 2 tempos, bulhas normofonéticas, sem sopros.",
+        "outros": "Sem edemas de membros inferiores.",
+    },
     "hipoteses_diagnosticas": ["Angina Estável", "Síndrome Coronariana Aguda"],
     "caracteristicas_agente": (
         "O paciente é um homem simples do campo, fala de forma pausada e direta. "

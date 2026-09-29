@@ -41,23 +41,23 @@ class HistoriaSocial(BaseModel):
     texto_livre: Optional[str] = None
 
 
-class ExameFisico(BaseModel):
-    estado_geral: Optional[str] = None
-    texto_livre: Optional[str] = None
-
-
 class CaseData(BaseModel):
     identificacao: Identificacao
     queixa_principal_texto: str
     historia_doenca_atual: str
-    interrogatorio_complementar: Optional[dict] = Field(default_factory=dict)
+    # Uma entrada por sistema (ex: {"cabeca": "...", "aparelho_respiratorio_circulatorio": "..."}).
+    # Aceita também o formato antigo {"texto": "..."} para retrocompatibilidade.
+    interrogatorio_complementar: Optional[dict[str, str]] = Field(default_factory=dict)
     historia_fisiologica: Optional[HistoriaFisiologica] = None
     historia_patologica: Optional[HistoriaPatologica] = None
     historia_familiar: Optional[HistoriaFamiliar] = None
     historia_social: Optional[HistoriaSocial] = None
-    exame_fisico: Optional[ExameFisico] = None
+    # Aceita o formato estruturado novo (sinais_vitais + achados por aparelho)
+    # e o formato antigo ({"estado_geral": ..., "texto_livre": ...}), daí o dict genérico.
+    exame_fisico: Optional[dict] = None
     diagnostico_completo: Optional[str] = None
     hipoteses_diagnosticas: list[str] = Field(default_factory=list)
+    caracteristicas_agente: Optional[str] = None
     raw_sections: dict[str, str] = Field(default_factory=dict)
 
 

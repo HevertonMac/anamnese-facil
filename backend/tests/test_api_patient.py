@@ -6,7 +6,7 @@ Cobre:
   - 503 quando OPENAI_API_KEY não está configurada
   - Geração bem-sucedida com resposta mockada do OpenAI
   - case_data incluído na resposta (regressão: PatientGenerateResponse.patient deve ser VirtualPatientDetail)
-  - raw_sections.caracteristicas_agente populado
+  - case_data.caracteristicas_agente populado (campo de primeiro nível)
   - chunks_ingested correto
   - campo generated_by
   - parâmetro eixo_c honrado
@@ -172,10 +172,10 @@ class TestGeneratePatient:
             "VirtualPatientDetail, não VirtualPatientResponse"
         )
 
-    async def test_response_includes_raw_sections(
+    async def test_response_includes_caracteristicas_agente(
         self, api_client, mock_db_session
     ):
-        """case_data.raw_sections deve estar presente e conter caracteristicas_agente."""
+        """case_data.caracteristicas_agente deve estar presente como campo de primeiro nível."""
         self._setup_generate_mocks(mock_db_session)
 
         with (
@@ -198,8 +198,103 @@ class TestGeneratePatient:
 
         assert resp.status_code == 201
         case_data = resp.json()["patient"]["case_data"]
-        assert "raw_sections" in case_data
-        assert "caracteristicas_agente" in case_data["raw_sections"]
+        assert "caracteristicas_agente" in case_data
+        assert case_data["caracteristicas_agente"]
+
+    async def test_interrogatorio_complementar_is_structured_by_system(
+        self, api_client, mock_db_session
+    ):
+        """interrogatorio_complementar deve preservar uma entrada por sistema."""
+        self._setup_generate_mocks(mock_db_session)
+
+        with (
+            patch(
+                "app.modules.patient.router.call_openai_generate",
+                new_callable=AsyncMock,
+            ) as mock_gen,
+            patch(
+                "app.modules.patient.router.get_embeddings",
+                new_callable=AsyncMock,
+            ) as mock_emb,
+        ):
+            mock_gen.return_value = SAMPLE_CASE_JSON
+            mock_emb.side_effect = _embeddings_side_effect
+
+            resp = await api_client.post(
+                "/api/v1/patients/generate",
+                json=self.BASE_PAYLOAD,
+            )
+
+        assert resp.status_code == 201
+        interrogatorio = resp.json()["patient"]["case_data"]["interrogatorio_complementar"]
+        assert interrogatorio == SAMPLE_CASE_JSON["interrogatorio_complementar"]
+
+    async def test_exame_fisico_includes_sinais_vitais(
+        self, api_client, mock_db_session
+    ):
+        """exame_fisico deve preservar sinais_vitais e ganhar texto_livre concatenado."""
+        self._setup_generate_mocks(mock_db_session)
+
+        with (
+            patch(
+                "app.modules.patient.router.call_openai_generate",
+                new_callable=AsyncMock,
+            ) as mock_gen,
+            patch(
+                "app.modules.patient.router.get_embeddings",
+                new_callable=AsyncMock,
+            ) as mock_emb,
+        ):
+            mock_gen.return_value = SAMPLE_CASE_JSON
+            mock_emb.side_effect = _embeddings_side_effect
+
+            resp = await api_client.post(
+                "/api/v1/patients/generate",
+                json=self.BASE_PAYLOAD,
+            )
+
+        assert resp.status_code == 201
+        exame = resp.json()["patient"]["case_data"]["exame_fisico"]
+        assert exame["sinais_vitais"] == SAMPLE_CASE_JSON["exame_fisico"]["sinais_vitais"]
+        assert "texto_livre" in exame
+        assert "145/90 mmHg" in exame["texto_livre"]
+
+    async def test_falls_back_gracefully_on_old_flat_string_format(
+        self, api_client, mock_db_session
+    ):
+        """
+        Retrocompatibilidade: se o LLM retornar interrogatorio_complementar e
+        exame_fisico como string (formato antigo), o endpoint não deve quebrar.
+        """
+        self._setup_generate_mocks(mock_db_session)
+        legacy_case = {
+            **SAMPLE_CASE_JSON,
+            "interrogatorio_complementar": "Nega dispneia em repouso. Nega tosse.",
+            "exame_fisico": "PA 145/90 mmHg. FC 78 bpm. Regular. Sem sopros.",
+        }
+
+        with (
+            patch(
+                "app.modules.patient.router.call_openai_generate",
+                new_callable=AsyncMock,
+            ) as mock_gen,
+            patch(
+                "app.modules.patient.router.get_embeddings",
+                new_callable=AsyncMock,
+            ) as mock_emb,
+        ):
+            mock_gen.return_value = legacy_case
+            mock_emb.side_effect = _embeddings_side_effect
+
+            resp = await api_client.post(
+                "/api/v1/patients/generate",
+                json=self.BASE_PAYLOAD,
+            )
+
+        assert resp.status_code == 201
+        case_data = resp.json()["patient"]["case_data"]
+        assert case_data["interrogatorio_complementar"]["texto"] == legacy_case["interrogatorio_complementar"]
+        assert case_data["exame_fisico"]["texto_livre"] == legacy_case["exame_fisico"]
 
     async def test_response_has_chunks_ingested(
         self, api_client, mock_db_session

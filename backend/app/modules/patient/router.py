@@ -71,6 +71,37 @@ FAIXA_ETARIA_RANGE = {
     "idoso": "entre 60 e 85 anos",
 }
 
+# Rótulos usados para expandir o interrogatório complementar (sistema a sistema)
+# e o exame físico estruturado em texto legível para chunking/embeddings.
+SISTEMA_LABELS = {
+    "cabeca": "Cabeça",
+    "olhos": "Olhos",
+    "ouvidos": "Ouvidos",
+    "nariz_boca_garganta": "Nariz, boca e garganta",
+    "pescoco": "Pescoço",
+    "aparelho_respiratorio_circulatorio": "Aparelho respiratório e circulatório",
+    "aparelho_digestivo": "Aparelho digestivo",
+    "aparelho_geniturinario": "Aparelho geniturinário",
+    "aparelho_locomotor": "Aparelho locomotor",
+    "pele": "Pele",
+    "sistema_nervoso": "Sistema nervoso",
+    "sintomas_gerais": "Sintomas gerais",
+}
+
+SINAIS_VITAIS_LABELS = {
+    "pa": "PA", "fc": "FC", "fr": "FR", "tax": "Tax", "spo2": "SpO2",
+    "peso": "Peso", "altura": "Altura", "imc": "IMC",
+}
+
+EXAME_FISICO_LABELS = {
+    "geral": "Estado geral",
+    "cardiovascular": "Aparelho cardiovascular",
+    "respiratorio": "Aparelho respiratório",
+    "abdome": "Abdome",
+    "neurologico": "Exame neurológico",
+    "outros": "Outros achados",
+}
+
 GENERATION_SYSTEM_PROMPT = """\
 Você é um especialista em semiologia médica e educação médica da UFPI.
 Sua tarefa é criar um caso clínico sintético, realista e educacionalmente rico
@@ -89,36 +120,66 @@ Retorne APENAS um objeto JSON válido com exatamente esta estrutura (sem markdow
   "nome": "Nome completo brasileiro",
   "idade": 45,
   "sexo": "M" ou "F",
-  "queixa_principal": "frase curta, como o paciente diria",
+  "queixa_principal": "frase curta exatamente como o paciente diria, entre aspas simples no texto",
   "diagnostico_principal": "diagnóstico correto para o professor",
-  "historia_doenca_atual": "narrativa detalhada (400-600 palavras) em primeira pessoa indireta, como o paciente relataria ao médico. Inclua: início, duração, evolução, fatores de melhora/piora, sintomas associados",
+  "historia_doenca_atual": "narrativa detalhada em terceira pessoa (400-600 palavras). Inclua: início, duração, evolução, fatores de melhora/piora, sintomas associados, medicamentos em uso se relevante, comportamento do paciente frente à doença",
   "identificacao": {
     "cor": "parda/branca/preta/amarela/indígena",
     "estado_civil": "casado/solteiro/viúvo/divorciado",
-    "profissao": "profissão realista",
+    "profissao": "profissão atual realista",
     "religiao": "religião",
-    "residencia": "cidade e estado piauiense ou nordestino",
+    "residencia": "cidade e bairro piauiense ou nordestino",
     "naturalidade": "cidade de origem"
   },
-  "interrogatorio_complementar": "texto com os sistemas não relacionados à queixa (cardiovascular, respiratório, digestivo, urinário, neurológico, etc.) — o que o paciente NEGA ou confirma quando perguntado",
-  "historia_fisiologica": "gestações, partos, desenvolvimento, puberdade, menopausa se aplicável",
+  "interrogatorio_complementar": {
+    "cabeca": "o que nega ou confirma sobre cefaleia, tonturas",
+    "olhos": "o que nega ou confirma",
+    "ouvidos": "o que nega ou confirma",
+    "nariz_boca_garganta": "o que nega ou confirma",
+    "pescoco": "o que nega ou confirma",
+    "aparelho_respiratorio_circulatorio": "o que nega ou confirma sobre tosse, dispneia, dor torácica, palpitações",
+    "aparelho_digestivo": "o que nega ou confirma sobre náuseas, vômitos, alteração do hábito intestinal, icterícia",
+    "aparelho_geniturinario": "o que nega ou confirma",
+    "aparelho_locomotor": "o que nega ou confirma",
+    "pele": "o que nega ou confirma",
+    "sistema_nervoso": "o que nega ou confirma sobre convulsões, paresias, alterações sensitivas",
+    "sintomas_gerais": "febre, emagrecimento, astenia, sudorese noturna"
+  },
+  "historia_fisiologica": "texto sobre gestações, partos, desenvolvimento, puberdade, menopausa se aplicável",
   "historia_patologica": {
     "doencas_previas": ["lista de doenças pregressas"],
-    "cirurgias": ["lista de cirurgias"],
-    "internacoes": ["lista de internações"],
+    "cirurgias": ["lista ou 'nega cirurgias'"],
+    "internacoes": ["lista ou 'nega internações'"],
     "medicamentos_em_uso": ["medicamento dose frequência"],
-    "alergias": ["lista de alergias ou 'nega alergias'"],
-    "texto_livre": "detalhes adicionais relevantes"
+    "alergias": ["lista ou 'nega alergias'"],
+    "texto_livre": "detalhes adicionais, vacinas, doenças da infância"
   },
-  "historia_familiar": "saúde dos pais, irmãos, filhos — mencionar doenças prevalentes na família",
+  "historia_familiar": "saúde detalhada dos pais (causa e idade do óbito se falecidos), irmãos, filhos — doenças prevalentes",
   "historia_social": {
-    "tabagismo": "ex-tabagista / tabagista X cigarros/dia / nega tabagismo",
-    "etilismo": "descrição do uso de álcool",
-    "texto_livre": "escolaridade, condições de moradia, saneamento, atividade física, alimentação, ocupação"
+    "tabagismo": "ex-tabagista X maços-ano / tabagista X cigarros/dia há Y anos / nega tabagismo",
+    "etilismo": "descrição quantificada do uso de álcool",
+    "texto_livre": "escolaridade, condições de moradia, saneamento, renda, com quem mora, atividade física, alimentação, acesso a serviços de saúde"
   },
-  "exame_fisico": "achados do exame físico compatíveis com o diagnóstico (PA, FC, FR, Tax, peso, altura, achados específicos do sistema acometido)",
+  "exame_fisico": {
+    "sinais_vitais": {
+      "pa": "120/80 mmHg",
+      "fc": "78 bpm",
+      "fr": "16 irpm",
+      "tax": "36,5°C",
+      "spo2": "98% em ar ambiente",
+      "peso": "70 kg",
+      "altura": "1,70 m",
+      "imc": "24,2 kg/m²"
+    },
+    "geral": "estado geral, hidratação, coloração, orientação",
+    "cardiovascular": "ritmo, bulhas, sopros, pulsos, edemas",
+    "respiratorio": "expansibilidade, murmúrio vesicular, ruídos adventícios",
+    "abdome": "inspeção, palpação, percussão, ausculta",
+    "neurologico": "consciência, orientação, força, sensibilidade, reflexos se relevante",
+    "outros": "achados específicos do sistema acometido pela queixa principal"
+  },
   "hipoteses_diagnosticas": ["diagnóstico principal", "primeiro diferencial", "segundo diferencial se aplicável"],
-  "caracteristicas_agente": "2-3 parágrafos descrevendo como este paciente se comporta na consulta: tom de voz, postura emocional, como responde a perguntas, o que omite ou exagera, gestos e expressões típicos. Deve ser coerente com o perfil comportamental (Eixo B) informado e com o contexto socioeconômico do paciente. Escrito em terceira pessoa, para orientar o ator/agente que vai interpretar o papel."
+  "caracteristicas_agente": "3 parágrafos detalhados: (1) Como o paciente se comporta ao entrar, postura, tom de voz, nível de ansiedade, relação com o médico. (2) Como responde às perguntas — o que relata espontaneamente, o que omite, o que exagera, termos leigos que usa para descrever sintomas, como reage a perguntas técnicas. (3) Informações que o estudante precisa explorar ativamente pois o paciente não oferece espontaneamente. Deve ser coerente com o Eixo B (perfil comportamental) e o Eixo C (letramento). Escrito em terceira pessoa."
 }
 """
 
@@ -136,6 +197,23 @@ def build_user_prompt(req: PatientGenerateRequest) -> str:
         lines.append(f"Faixa etária: {FAIXA_ETARIA_RANGE.get(req.faixa_etaria, req.faixa_etaria)}")
     if req.instrucoes_extras:
         lines.append(f"Instruções adicionais: {req.instrucoes_extras}")
+    lines.append(
+        "IMPORTANTE: O interrogatorio_complementar deve ter uma entrada por sistema, "
+        "descrevendo o que o paciente nega E o que confirma quando perguntado "
+        "especificamente sobre aquele sistema. Não misture tudo em um único texto."
+    )
+    lines.append(
+        "O campo exame_fisico deve ter sinais vitais individuais (pa, fc, fr, tax, "
+        "spo2, peso, altura, imc) além dos achados por aparelho."
+    )
+    lines.append(
+        "O campo caracteristicas_agente deve ter 3 parágrafos distintos conforme "
+        "instruído, totalizando 300-500 palavras."
+    )
+    lines.append(
+        "A queixa_principal deve ser a frase exata como o paciente expressaria em "
+        "linguagem coloquial."
+    )
     return "\n".join(lines)
 
 
@@ -218,6 +296,55 @@ def next_case_number_sync(existing_numbers: list[int]) -> int:
     return n
 
 
+def format_interrogatorio_complementar(raw: Any) -> tuple[dict[str, str], str]:
+    """Normaliza o interrogatório complementar retornado pelo LLM.
+
+    Formato novo (esperado): dict com uma chave por sistema.
+    Formato antigo (fallback): string única — mantida como compatibilidade.
+
+    Retorna (estrutura para case_data, texto concatenado para chunking).
+    """
+    if isinstance(raw, dict):
+        estruturado = {k: str(v) for k, v in raw.items() if v}
+        texto = "\n\n".join(
+            f"{SISTEMA_LABELS.get(k, k.replace('_', ' ').capitalize())}: {v}"
+            for k, v in estruturado.items()
+        )
+        return estruturado, texto
+    texto = str(raw).strip() if raw else ""
+    return ({"texto": texto} if texto else {}), texto
+
+
+def format_exame_fisico(raw: Any) -> tuple[dict[str, Any], str]:
+    """Normaliza o exame físico retornado pelo LLM.
+
+    Formato novo (esperado): dict com `sinais_vitais` (dict) + achados por aparelho.
+    Formato antigo (fallback): string única — mantida como compatibilidade.
+
+    Retorna (estrutura para case_data, texto concatenado para chunking).
+    """
+    if isinstance(raw, dict):
+        sinais_vitais = raw.get("sinais_vitais")
+        sinais_vitais = sinais_vitais if isinstance(sinais_vitais, dict) else {}
+        partes = []
+        sv_texto = ", ".join(
+            f"{SINAIS_VITAIS_LABELS.get(k, k.upper())}: {v}"
+            for k, v in sinais_vitais.items() if v
+        )
+        if sv_texto:
+            partes.append(f"Sinais vitais: {sv_texto}")
+        for k, v in raw.items():
+            if k == "sinais_vitais" or not v:
+                continue
+            partes.append(f"{EXAME_FISICO_LABELS.get(k, k.replace('_', ' ').capitalize())}: {v}")
+        texto = "\n\n".join(partes)
+        estruturado = dict(raw)
+        estruturado["texto_livre"] = texto
+        return estruturado, texto
+    texto = str(raw).strip() if raw else ""
+    return {"texto_livre": texto}, texto
+
+
 @router.post(
     "/generate",
     response_model=PatientGenerateResponse,
@@ -244,7 +371,12 @@ async def generate_patient(
     ident_raw = case_json.get("identificacao", {})
     historia_pat_raw = case_json.get("historia_patologica", {})
     historia_soc_raw = case_json.get("historia_social", {})
-    exame_raw = case_json.get("exame_fisico", "")
+
+    interrogatorio_estruturado, interrogatorio_texto = format_interrogatorio_complementar(
+        case_json.get("interrogatorio_complementar", {})
+    )
+    exame_estruturado, exame_texto = format_exame_fisico(case_json.get("exame_fisico", {}))
+    caracteristicas_agente = case_json.get("caracteristicas_agente", "")
 
     case_data = {
         "identificacao": {
@@ -258,7 +390,7 @@ async def generate_patient(
         },
         "queixa_principal_texto": queixa,
         "historia_doenca_atual": case_json.get("historia_doenca_atual", ""),
-        "interrogatorio_complementar": {"texto": case_json.get("interrogatorio_complementar", "")},
+        "interrogatorio_complementar": interrogatorio_estruturado,
         "historia_fisiologica": {"texto_livre": case_json.get("historia_fisiologica", "")},
         "historia_patologica": {
             "doencas_previas": historia_pat_raw.get("doencas_previas", []) if isinstance(historia_pat_raw, dict) else [],
@@ -274,12 +406,11 @@ async def generate_patient(
             "etilismo": historia_soc_raw.get("etilismo") if isinstance(historia_soc_raw, dict) else None,
             "texto_livre": historia_soc_raw.get("texto_livre", "") if isinstance(historia_soc_raw, dict) else str(historia_soc_raw),
         },
-        "exame_fisico": {"texto_livre": exame_raw if isinstance(exame_raw, str) else str(exame_raw)},
+        "exame_fisico": exame_estruturado,
         "diagnostico_completo": diagnostico,
         "hipoteses_diagnosticas": case_json.get("hipoteses_diagnosticas", [diagnostico]),
-        "raw_sections": {
-            "caracteristicas_agente": case_json.get("caracteristicas_agente", ""),
-        },
+        "caracteristicas_agente": caracteristicas_agente,
+        "raw_sections": {},
         "gerado_por_llm": True,
     }
 
@@ -312,7 +443,7 @@ async def generate_patient(
         "identificacao": f"Nome: {nome}. Idade: {idade} anos. Sexo: {'Masculino' if sexo == 'M' else 'Feminino'}.",
         "queixa_principal": queixa,
         "historia_doenca_atual": case_json.get("historia_doenca_atual", ""),
-        "interrogatorio_complementar": case_json.get("interrogatorio_complementar", ""),
+        "interrogatorio_complementar": interrogatorio_texto,
         "historia_fisiologica": case_json.get("historia_fisiologica", ""),
         "historia_patologica": (
             historia_pat_raw.get("texto_livre", "") if isinstance(historia_pat_raw, dict) else str(historia_pat_raw)
@@ -323,7 +454,8 @@ async def generate_patient(
         "historia_social": (
             historia_soc_raw.get("texto_livre", "") if isinstance(historia_soc_raw, dict) else str(historia_soc_raw)
         ),
-        "exame_fisico": exame_raw if isinstance(exame_raw, str) else "",
+        "exame_fisico": exame_texto,
+        "caracteristicas_agente": caracteristicas_agente,
         "hipoteses_diagnosticas": " | ".join(
             case_json.get("hipoteses_diagnosticas", [])
         ),
