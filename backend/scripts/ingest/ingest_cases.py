@@ -46,11 +46,16 @@ EIXO_A_MAP = {
     "musculoesquelético": "musculoesqueletico", "musculoesqueletico": "musculoesqueletico",
     "endócrino/metabólico": "endocrino_metabolico", "endocrino/metabolico": "endocrino_metabolico", "endocrino_metabolico": "endocrino_metabolico",
     "geniturinário": "geniturinario", "geniturinario": "geniturinario",
+    "infectoparasitário": "infectoparasitario", "infectoparasitario": "infectoparasitario",
+    "doenças infecciosas e parasitárias": "infectoparasitario",
+    "doenças infectoparasitárias": "infectoparasitario",
 }
 
 EIXO_B_MAP = {
     "colaborativo": "colaborativo", "ansioso": "ansioso",
+    "ansioso/catastrofizante": "ansioso", "colaborativo-minimizador": "colaborativo",
     "resistente": "resistente", "confuso": "confuso", "minimizador": "minimizador",
+    "minimizador/reticente": "minimizador",
 }
 
 COMPLEXIDADE_MAP = {"baixa": "baixa", "média": "media", "media": "media", "alta": "alta"}
@@ -72,6 +77,7 @@ SECTION_PATTERNS = [
 ]
 
 KNOWN_CASES = {
+    # --- Semana 1: Eixo B colaborativo ---
     1: {"nome": "Alfonso", "idade": 78, "sexo": "M", "eixo_a": "cardiovascular", "eixo_b": "colaborativo", "complexidade": "alta", "diagnostico_principal": "Hipotensão Postural", "queixa_principal": "Síncope"},
     2: {"nome": "Roberto", "idade": 16, "sexo": "M", "eixo_a": "respiratorio", "eixo_b": "colaborativo", "complexidade": "baixa", "diagnostico_principal": "Asma", "queixa_principal": "Tosse"},
     3: {"nome": "Dulce", "idade": 58, "sexo": "F", "eixo_a": "gastrointestinal", "eixo_b": "colaborativo", "complexidade": "media", "diagnostico_principal": "DRGE", "queixa_principal": "Dispepsia"},
@@ -82,6 +88,23 @@ KNOWN_CASES = {
     8: {"nome": "Olívia", "idade": 21, "sexo": "F", "eixo_a": "cardiovascular", "eixo_b": "colaborativo", "complexidade": "media", "diagnostico_principal": "POTS", "queixa_principal": "Palpitação"},
     9: {"nome": "Jorge", "idade": 44, "sexo": "M", "eixo_a": "respiratorio", "eixo_b": "colaborativo", "complexidade": "media", "diagnostico_principal": "Tuberculose", "queixa_principal": "Hemoptise"},
     10: {"nome": "Maria", "idade": 64, "sexo": "F", "eixo_a": "gastrointestinal", "eixo_b": "colaborativo", "complexidade": "alta", "diagnostico_principal": "Coledocolitíase", "queixa_principal": "Dor Abdominal"},
+    # --- Semana 2: Eixo B ansioso ---
+    11: {"nome": "Fred", "idade": 22, "sexo": "M", "eixo_a": "neurologico", "eixo_b": "ansioso", "complexidade": "media", "diagnostico_principal": "Paralisia Facial Periférica", "queixa_principal": "Boca torta"},
+    12: {"nome": "Rute", "idade": 72, "sexo": "F", "eixo_a": "musculoesqueletico", "eixo_b": "ansioso", "complexidade": "media", "diagnostico_principal": "Osteoartrite de Joelhos", "queixa_principal": "Dor bilateral em joelhos"},
+    13: {"nome": "Sandra", "idade": 53, "sexo": "F", "eixo_a": "endocrino_metabolico", "eixo_b": "ansioso", "complexidade": "media", "diagnostico_principal": "Hipotireoidismo", "queixa_principal": "Astenia e ganho de peso"},
+    14: {"nome": "Lígia", "idade": 24, "sexo": "F", "eixo_a": "geniturinario", "eixo_b": "ansioso", "complexidade": "alta", "diagnostico_principal": "Nefrite Lúpica", "queixa_principal": "Hematúria e pressão alta"},
+    15: {"nome": "Lucas", "idade": 18, "sexo": "M", "eixo_a": "cardiovascular", "eixo_b": "ansioso", "complexidade": "media", "diagnostico_principal": "Síncope Vasovagal", "queixa_principal": "Desmaio"},
+    16: {"nome": "João Batista", "idade": 84, "sexo": "M", "eixo_a": "infectoparasitario", "eixo_b": "colaborativo", "complexidade": "media", "diagnostico_principal": "Erisipela", "queixa_principal": "Febre"},
+    17: {"nome": "Pedro Henrique", "idade": 22, "sexo": "M", "eixo_a": "gastrointestinal", "eixo_b": "ansioso", "complexidade": "media", "diagnostico_principal": "Hepatite A", "queixa_principal": "Urina escura"},
+    18: {"nome": "Pedro Augusto", "idade": 6, "sexo": "M", "eixo_a": "respiratorio", "eixo_b": "ansioso", "complexidade": "media", "diagnostico_principal": "Rinossinusite Aguda", "queixa_principal": "Tosse e coriza persistentes"},
+    19: {"nome": "Ana Beatriz", "idade": 41, "sexo": "F", "eixo_a": "gastrointestinal", "eixo_b": "ansioso", "complexidade": "alta", "diagnostico_principal": "Síndrome do Intestino Irritável", "queixa_principal": "Diarreia crônica e dor abdominal"},
+    20: {"nome": "Davi", "idade": 32, "sexo": "M", "eixo_a": "neurologico", "eixo_b": "ansioso", "complexidade": "alta", "diagnostico_principal": "Síndrome de Guillain-Barré", "queixa_principal": "Fraqueza progressiva nas pernas"},
+    # --- Semana 3: Eixo B minimizador ---
+    21: {"nome": "Débora", "idade": 38, "sexo": "F", "eixo_a": "endocrino_metabolico", "eixo_b": "minimizador", "complexidade": "media", "diagnostico_principal": "Insuficiência Ovariana Prematura", "queixa_principal": "Cansaço"},
+    22: {"nome": "Raimundo", "idade": 72, "sexo": "M", "eixo_a": "geniturinario", "eixo_b": "minimizador", "complexidade": "media", "diagnostico_principal": "Hiperplasia Prostática Benigna", "queixa_principal": "Noctúria"},
+    23: {"nome": "José Américo", "idade": 58, "sexo": "M", "eixo_a": "cardiovascular", "eixo_b": "minimizador", "complexidade": "alta", "diagnostico_principal": "Angina Estável", "queixa_principal": "Dor no peito"},
+    24: {"nome": "Antônia", "idade": 68, "sexo": "F", "eixo_a": "infectoparasitario", "eixo_b": "minimizador", "complexidade": "baixa", "diagnostico_principal": "Giardíase", "queixa_principal": "Dor abdominal"},
+    25: {"nome": "Fernanda", "idade": 32, "sexo": "F", "eixo_a": "respiratorio", "eixo_b": "minimizador", "complexidade": "alta", "diagnostico_principal": "EVALI", "queixa_principal": "Tosse e dispneia progressiva"},
 }
 
 
@@ -354,7 +377,20 @@ async def main(cases_dir: str, reset: bool = False) -> None:
     engine = create_async_engine(DATABASE_URL, echo=False)
     async_session = async_sessionmaker(engine, expire_on_commit=False)
     cases_path = Path(cases_dir)
-    docx_files = sorted(cases_path.glob("Caso_*.docx")) or sorted(cases_path.glob("Caso *.docx"))
+    # Collect all Caso*.docx files with any naming convention, sort by case number
+    all_docx = list(cases_path.glob("Caso_*.docx")) + list(cases_path.glob("Caso [0-9]*.docx"))
+    seen = set()
+    unique_docx = []
+    for f in all_docx:
+        if f.name not in seen:
+            seen.add(f.name)
+            unique_docx.append(f)
+
+    def _case_sort_key(p):
+        m = re.search(r"(\d+)", p.stem)
+        return int(m.group(1)) if m else 999
+
+    docx_files = sorted(unique_docx, key=_case_sort_key)
     if not docx_files:
         log.error(f"No Caso_*.docx files found in {cases_dir}")
         sys.exit(1)
