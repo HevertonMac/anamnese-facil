@@ -112,6 +112,7 @@ def docx_to_text(docx_path: Path) -> str:
     result = subprocess.run(
         ["pandoc", str(docx_path), "-t", "plain", "--wrap=none"],
         capture_output=True, text=True, check=True,
+        encoding="utf-8",
     )
     return result.stdout
 

@@ -30,6 +30,7 @@ class EixoA(str, enum.Enum):
     musculoesqueletico = "musculoesqueletico"
     endocrino_metabolico = "endocrino_metabolico"
     geniturinario = "geniturinario"
+    infectoparasitario = "infectoparasitario"
 
 
 class EixoB(str, enum.Enum):
