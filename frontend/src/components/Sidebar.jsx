@@ -35,7 +35,7 @@ export default function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-logo">
-        <div className="sidebar-logo-title">Anamnese Facil</div>
+        <div className="sidebar-logo-title">Anamnese Fácil</div>
         <div className="sidebar-logo-sub">Plataforma Educacional</div>
       </div>
 

@@ -5,32 +5,46 @@ import client from '../api/client'
 
 const COMPLEXITY_BADGE = { baixa: 'badge-green', media: 'badge-amber', alta: 'badge-red' }
 
+const EIXO_A_LABELS = {
+  cardiovascular: 'Cardiovascular',
+  respiratorio: 'Respiratório',
+  gastrointestinal: 'Gastrointestinal',
+  neurologico: 'Neurológico',
+  musculoesqueletico: 'Musculoesquelético',
+  endocrino_metabolico: 'Endócrino/Metabólico',
+  geniturinario: 'Geniturinário',
+  infectoparasitario: 'Infectoparasitário',
+}
+
 export default function PacientesPage() {
   const [patients, setPatients] = useState([])
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState('')
   const [search, setSearch]     = useState('')
-  const [filterArea, setFilterArea]     = useState('')
-  const [filterComp, setFilterComp]     = useState('')
+  const [filterArea, setFilterArea] = useState('')
+  const [filterComp, setFilterComp] = useState('')
 
   useEffect(() => {
+    setLoading(true)
+    setError('')
     const params = {}
     if (filterArea) params.eixo_a = filterArea
     if (filterComp) params.complexidade = filterComp
     client.get('/kb/patients', { params })
       .then(r => setPatients(r.data?.patients || r.data || []))
-      .catch(() => setError('Nao foi possivel carregar os pacientes.'))
+      .catch(() => setError('Não foi possível carregar os pacientes.'))
       .finally(() => setLoading(false))
   }, [filterArea, filterComp])
 
-  const areas = [...new Set(patients.map(p => p.area_clinica).filter(Boolean))].sort()
+  // Build area list from eixo_a field
+  const areas = [...new Set(patients.map(p => p.eixo_a).filter(Boolean))].sort()
 
   const filtered = patients.filter(p => {
     if (!search) return true
     const q = search.toLowerCase()
     return (
       (p.nome || '').toLowerCase().includes(q) ||
-      (p.area_clinica || '').toLowerCase().includes(q) ||
+      (p.eixo_a || '').toLowerCase().includes(q) ||
       (p.diagnostico_principal || '').toLowerCase().includes(q)
     )
   })
@@ -52,14 +66,14 @@ export default function PacientesPage() {
         </div>
 
         <select className="form-control" style={{ width: 180 }} value={filterArea} onChange={e => setFilterArea(e.target.value)}>
-          <option value="">Todas as areas</option>
-          {areas.map(a => <option key={a} value={a}>{a}</option>)}
+          <option value="">Todas as áreas</option>
+          {areas.map(a => <option key={a} value={a}>{EIXO_A_LABELS[a] || a}</option>)}
         </select>
 
         <select className="form-control" style={{ width: 160 }} value={filterComp} onChange={e => setFilterComp(e.target.value)}>
           <option value="">Todas complexidades</option>
           <option value="baixa">Baixa</option>
-          <option value="media">Media</option>
+          <option value="media">Média</option>
           <option value="alta">Alta</option>
         </select>
 
@@ -87,14 +101,16 @@ export default function PacientesPage() {
           <div className="patient-grid">
             {filtered.map(p => {
               const compKey = (p.complexidade || '').toLowerCase()
+              const areaLabel = EIXO_A_LABELS[p.eixo_a] || p.eixo_a
+              const sexoLabel = p.sexo === 'M' ? 'Masculino' : p.sexo === 'F' ? 'Feminino' : p.sexo
               return (
                 <Link key={p.id} to={`/pacientes/${p.id}`} className="patient-card">
                   <div className="patient-card-name">{p.nome || 'Paciente virtual'}</div>
                   <div className="patient-card-meta">
-                    {[p.idade ? `${p.idade} anos` : null, p.genero].filter(Boolean).join(' · ')}
+                    {[p.idade ? `${p.idade} anos` : null, sexoLabel].filter(Boolean).join(' · ')}
                   </div>
                   <div className="flex-row" style={{ flexWrap: 'wrap', gap: 6 }}>
-                    {p.area_clinica && <span className="badge badge-blue">{p.area_clinica}</span>}
+                    {areaLabel && <span className="badge badge-blue">{areaLabel}</span>}
                     {p.complexidade && (
                       <span className={`badge ${COMPLEXITY_BADGE[compKey] || 'badge-gray'}`}>
                         {p.complexidade}

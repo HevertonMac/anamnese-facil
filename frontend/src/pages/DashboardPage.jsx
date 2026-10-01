@@ -45,7 +45,7 @@ export default function DashboardPage() {
         </div>
         <div className="stat-card">
           <div className="stat-value">{Object.keys(areas).length}</div>
-          <div className="stat-label">Areas clinicas</div>
+          <div className="stat-label">Áreas clínicas</div>
         </div>
         <div className="stat-card">
           <div className="stat-value">
@@ -59,7 +59,7 @@ export default function DashboardPage() {
       {Object.keys(areas).length > 0 && (
         <div className="card mb-24">
           <h2 style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 16, fontWeight: 700, marginBottom: 16 }}>
-            Distribuicao por area clinica
+            Distribuição por área clínica
           </h2>
           <div className="table-wrap">
             <table>

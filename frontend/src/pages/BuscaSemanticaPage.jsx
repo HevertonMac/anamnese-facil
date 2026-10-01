@@ -85,7 +85,7 @@ export default function BuscaSemanticaPage() {
                         {r.patient_name}
                       </Link>
                     )}
-                    {r.area_clinica && <span className="badge badge-blue">{r.area_clinica}</span>}
+                    
                     {r.section && <span className="badge badge-gray">{r.section}</span>}
                   </div>
                   <div style={{ textAlign: 'right' }}>
