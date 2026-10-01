@@ -1,18 +1,14 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
-const ROLE_LABEL = {
-  student: 'Aluno',
-  teacher: 'Professor',
-  admin: 'Administrador',
-}
-
 export default function LoginPage() {
-  const { login } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const { login } = useAuth()
+  const navigate = useNavigate()
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -20,133 +16,86 @@ export default function LoginPage() {
     setLoading(true)
     try {
       await login(email, password)
+      navigate('/')
     } catch (err) {
-      setError(err.message)
+      setError(err.response?.data?.detail || 'Email ou senha inválidos')
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div style={styles.wrapper}>
-      <div style={styles.card}>
-        {/* Logo / Título */}
+    <div style={{
+      minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: 'linear-gradient(135deg, #1e3a5f 0%, #1e293b 100%)',
+    }}>
+      <div style={{
+        background: '#fff', borderRadius: 16, padding: '48px 40px',
+        width: '100%', maxWidth: 400, boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+      }}>
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <span style={{ fontSize: 40 }}>🩺</span>
-          <h1 style={styles.title}>Anamnese Fácil</h1>
-          <p style={styles.subtitle}>Plataforma de pacientes virtuais — PPGCC/UFPI</p>
+          <div style={{ fontSize: 48, marginBottom: 8 }}>🩺</div>
+          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: '#1e293b' }}>Anamnese Fácil</h1>
+          <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: 14 }}>Plataforma de Pacientes Virtuais</p>
         </div>
 
+        {error && (
+          <div style={{
+            background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8,
+            padding: '12px 16px', marginBottom: 20, color: '#dc2626', fontSize: 14,
+          }}>
+            {error}
+          </div>
+        )}
+
         <form onSubmit={handleSubmit}>
-          <div style={styles.field}>
-            <label style={styles.label} htmlFor="email">E-mail</label>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+              Email
+            </label>
             <input
-              id="email"
               type="email"
-              required
-              autoComplete="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
-              style={styles.input}
+              required
               placeholder="seu@email.com"
+              style={{
+                width: '100%', padding: '10px 14px', border: '1px solid #d1d5db',
+                borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box',
+              }}
             />
           </div>
 
-          <div style={styles.field}>
-            <label style={styles.label} htmlFor="password">Senha</label>
+          <div style={{ marginBottom: 24 }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+              Senha
+            </label>
             <input
-              id="password"
               type="password"
-              required
-              autoComplete="current-password"
               value={password}
               onChange={e => setPassword(e.target.value)}
-              style={styles.input}
+              required
               placeholder="••••••••"
+              style={{
+                width: '100%', padding: '10px 14px', border: '1px solid #d1d5db',
+                borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box',
+              }}
             />
           </div>
 
-          {error && (
-            <div style={styles.error}>{error}</div>
-          )}
-
-          <button type="submit" disabled={loading} style={styles.button}>
-            {loading ? 'Entrando…' : 'Entrar'}
+          <button
+            type="submit"
+            disabled={loading}
+            style={{
+              width: '100%', padding: '12px', background: loading ? '#93c5fd' : '#2563eb',
+              color: '#fff', border: 'none', borderRadius: 8, fontSize: 15, fontWeight: 600,
+              cursor: loading ? 'not-allowed' : 'pointer', transition: 'background 0.2s',
+            }}
+          >
+            {loading ? 'Entrando...' : 'Entrar'}
           </button>
         </form>
       </div>
     </div>
   )
-}
-
-const styles = {
-  wrapper: {
-    minHeight: '100vh',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: 'linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%)',
-    padding: '24px',
-  },
-  card: {
-    background: '#ffffff',
-    borderRadius: 16,
-    boxShadow: '0 4px 24px rgba(0,0,0,0.10)',
-    padding: '40px 36px',
-    width: '100%',
-    maxWidth: 400,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 700,
-    color: '#1e40af',
-    margin: '8px 0 4px',
-  },
-  subtitle: {
-    fontSize: 13,
-    color: '#64748b',
-    margin: 0,
-  },
-  field: {
-    marginBottom: 18,
-  },
-  label: {
-    display: 'block',
-    fontSize: 13,
-    fontWeight: 600,
-    color: '#374151',
-    marginBottom: 6,
-  },
-  input: {
-    width: '100%',
-    padding: '10px 14px',
-    fontSize: 15,
-    border: '1px solid #d1d5db',
-    borderRadius: 8,
-    outline: 'none',
-    boxSizing: 'border-box',
-    transition: 'border-color 0.15s',
-  },
-  error: {
-    background: '#fef2f2',
-    border: '1px solid #fca5a5',
-    borderRadius: 8,
-    padding: '10px 14px',
-    fontSize: 14,
-    color: '#dc2626',
-    marginBottom: 16,
-  },
-  button: {
-    width: '100%',
-    padding: '12px',
-    background: '#1e40af',
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: 600,
-    border: 'none',
-    borderRadius: 8,
-    cursor: 'pointer',
-    marginTop: 4,
-    transition: 'background 0.15s',
-  },
 }

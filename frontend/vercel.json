@@ -1,12 +1,16 @@
 {
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "installCommand": "npm install",
+  "framework": "vite",
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "https://anamnese-facil.onrender.com/api/$1"
+      "source": "/api/:path*",
+      "destination": "https://anamnese-facil.onrender.com/api/:path*"
     },
     {
-      "source": "/health",
-      "destination": "https://anamnese-facil.onrender.com/health"
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }

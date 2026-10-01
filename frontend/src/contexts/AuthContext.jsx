@@ -1,63 +1,44 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useState, useEffect } from 'react'
+import client from '../api/client'
 
 const AuthContext = createContext(null)
 
-const API = import.meta.env.VITE_API_URL || ''
-const TOKEN_KEY = 'anamnese_token'
-
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null)      // { id, email, full_name, role }
-  const [loading, setLoading] = useState(true) // aguarda verificação inicial
+  const [user, setUser] = useState(null)
+  const [loading, setLoading] = useState(true)
 
-  // Verifica token salvo ao montar
   useEffect(() => {
-    const token = localStorage.getItem(TOKEN_KEY)
-    if (!token) { setLoading(false); return }
-    fetch(`${API}/api/v1/auth/me`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(r => r.ok ? r.json() : Promise.reject())
-      .then(data => setUser(data))
-      .catch(() => localStorage.removeItem(TOKEN_KEY))
-      .finally(() => setLoading(false))
-  }, [])
-
-  const login = useCallback(async (email, password) => {
-    const res = await fetch(`${API}/api/v1/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.detail || 'Erro ao fazer login')
+    const token = localStorage.getItem('anamnese_token')
+    if (token) {
+      client.get('/auth/me')
+        .then(r => setUser(r.data))
+        .catch(() => localStorage.removeItem('anamnese_token'))
+        .finally(() => setLoading(false))
+    } else {
+      setLoading(false)
     }
-    const { access_token } = await res.json()
-    localStorage.setItem(TOKEN_KEY, access_token)
-
-    const me = await fetch(`${API}/api/v1/auth/me`, {
-      headers: { Authorization: `Bearer ${access_token}` },
-    }).then(r => r.json())
-    setUser(me)
-    return me
   }, [])
 
-  const logout = useCallback(() => {
-    localStorage.removeItem(TOKEN_KEY)
+  async function login(email, password) {
+    const { data } = await client.post('/auth/login', { email, password })
+    localStorage.setItem('anamnese_token', data.access_token)
+    const me = await client.get('/auth/me')
+    setUser(me.data)
+    return me.data
+  }
+
+  function logout() {
+    localStorage.removeItem('anamnese_token')
     setUser(null)
-  }, [])
-
-  const getToken = useCallback(() => localStorage.getItem(TOKEN_KEY), [])
+  }
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, getToken }}>
+    <AuthContext.Provider value={{ user, loading, login, logout }}>
       {children}
     </AuthContext.Provider>
   )
 }
 
 export function useAuth() {
-  const ctx = useContext(AuthContext)
-  if (!ctx) throw new Error('useAuth deve ser usado dentro de <AuthProvider>')
-  return ctx
+  return useContext(AuthContext)
 }
