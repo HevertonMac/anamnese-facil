@@ -29,7 +29,7 @@ export default function DashboardPage() {
     </Layout>
   )
 
-  const areas = stats?.by_area || {}
+  const areas = stats?.by_clinical_area || stats?.by_area || {}
 
   return (
     <Layout title="Dashboard">
@@ -49,7 +49,7 @@ export default function DashboardPage() {
         </div>
         <div className="stat-card">
           <div className="stat-value">
-            {stats?.coverage_percent != null ? `${stats.coverage_percent}%` : '--'}
+            {stats?.embedding_coverage != null ? `${stats.embedding_coverage}%` : '--'}
           </div>
           <div className="stat-label">Cobertura KB</div>
         </div>
@@ -73,7 +73,7 @@ export default function DashboardPage() {
               <tbody>
                 {Object.entries(areas).map(([area, info]) => {
                   const complexidade = typeof info === 'object' ? info.complexidade_predominante || info.complexidade : null
-                  const count = typeof info === 'object' ? info.count || info.total : info
+                  const count = typeof info === 'number' ? info : (info?.count || info?.total || 0)
                   return (
                     <tr key={area}>
                       <td>{area}</td>
