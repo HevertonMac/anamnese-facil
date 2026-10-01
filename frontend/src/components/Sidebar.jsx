@@ -2,13 +2,25 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
 const ROLE_LABELS = { student: 'Aluno', teacher: 'Professor', admin: 'Admin' }
-const ROLE_COLORS = { student: '#3b82f6', teacher: '#10b981', admin: '#8b5cf6' }
+const ROLE_CLASS  = { student: 'role-student', teacher: 'role-teacher', admin: 'role-admin' }
 
 const NAV_ITEMS = [
-  { to: '/', icon: '📊', label: 'Dashboard' },
-  { to: '/pacientes', icon: '👥', label: 'Pacientes' },
-  { to: '/busca', icon: '🔍', label: 'Busca Semântica' },
-  { to: '/gerar', icon: '✨', label: 'Gerar Paciente' },
+  {
+    to: '/', label: 'Dashboard',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+  },
+  {
+    to: '/pacientes', label: 'Pacientes',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+  },
+  {
+    to: '/busca', label: 'Busca Semântica',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+  },
+  {
+    to: '/gerar', label: 'Gerar Paciente',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+  },
 ]
 
 export default function Sidebar() {
@@ -21,60 +33,41 @@ export default function Sidebar() {
   }
 
   return (
-    <aside style={{
-      width: 240, minHeight: '100vh', background: '#1e293b',
-      display: 'flex', flexDirection: 'column', padding: '24px 0',
-      position: 'fixed', left: 0, top: 0, bottom: 0,
-    }}>
-      {/* Logo */}
-      <div style={{ padding: '0 24px 32px', borderBottom: '1px solid #334155' }}>
-        <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>🩺 Anamnese</div>
-        <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Plataforma Educacional</div>
+    <aside className="sidebar">
+      <div className="sidebar-logo">
+        <div className="sidebar-logo-title">Anamnese Facil</div>
+        <div className="sidebar-logo-sub">Plataforma Educacional</div>
       </div>
 
-      {/* Nav */}
-      <nav style={{ flex: 1, padding: '16px 0' }}>
+      <div className="sidebar-section-label">Menu</div>
+
+      <nav style={{ flex: 1 }}>
         {NAV_ITEMS.map(({ to, icon, label }) => (
           <NavLink
             key={to}
             to={to}
             end={to === '/'}
-            style={({ isActive }) => ({
-              display: 'flex', alignItems: 'center', gap: 12,
-              padding: '12px 24px', textDecoration: 'none',
-              color: isActive ? '#fff' : '#94a3b8',
-              background: isActive ? '#334155' : 'transparent',
-              borderLeft: isActive ? '3px solid #3b82f6' : '3px solid transparent',
-              transition: 'all 0.15s',
-              fontSize: 14,
-            })}
+            className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}
           >
-            <span style={{ fontSize: 18 }}>{icon}</span>
+            {icon}
             {label}
           </NavLink>
         ))}
       </nav>
 
-      {/* User */}
       {user && (
-        <div style={{ padding: '16px 24px', borderTop: '1px solid #334155' }}>
-          <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 4 }}>{user.full_name}</div>
-          <div style={{
-            display: 'inline-block', fontSize: 11, fontWeight: 600,
-            color: ROLE_COLORS[user.role] || '#64748b',
-            background: '#0f172a', borderRadius: 4, padding: '2px 8px', marginBottom: 12,
-          }}>
+        <div className="sidebar-footer">
+          <div className="sidebar-user-name">{user.full_name || user.email}</div>
+          <div className={`sidebar-user-role ${ROLE_CLASS[user.role] || 'role-student'}`}>
             {ROLE_LABELS[user.role] || user.role}
           </div>
-          <button
-            onClick={handleLogout}
-            style={{
-              width: '100%', padding: '8px', border: '1px solid #334155',
-              background: 'transparent', color: '#94a3b8', borderRadius: 8,
-              cursor: 'pointer', fontSize: 13, textAlign: 'left',
-            }}
-          >
-            🚪 Sair
+          <button className="btn-logout" onClick={handleLogout}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+            Sair
           </button>
         </div>
       )}

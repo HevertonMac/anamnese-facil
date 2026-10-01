@@ -1,112 +1,134 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
+import Layout from '../components/Layout'
 import client from '../api/client'
-import { useAuth } from '../contexts/AuthContext'
 
-function StatCard({ icon, label, value, color, to }) {
-  const card = (
-    <div style={{
-      background: '#fff', borderRadius: 12, padding: '24px 28px',
-      boxShadow: '0 1px 3px rgba(0,0,0,0.1)', borderLeft: `4px solid ${color}`,
-      textDecoration: 'none', display: 'block',
-    }}>
-      <div style={{ fontSize: 28, marginBottom: 8 }}>{icon}</div>
-      <div style={{ fontSize: 32, fontWeight: 700, color: '#1e293b' }}>{value ?? '—'}</div>
-      <div style={{ fontSize: 14, color: '#64748b', marginTop: 4 }}>{label}</div>
-    </div>
-  )
-  return to ? <Link to={to} style={{ textDecoration: 'none' }}>{card}</Link> : card
-}
+const COMPLEXITY_BADGE = { baixa: 'badge-green', media: 'badge-amber', alta: 'badge-red' }
 
 export default function DashboardPage() {
-  const { user } = useAuth()
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     client.get('/kb/stats')
       .then(r => setStats(r.data))
-      .catch(() => {})
+      .catch(() => setError('Não foi possível carregar as estatísticas.'))
       .finally(() => setLoading(false))
   }, [])
 
+  if (loading) return (
+    <Layout title="Dashboard">
+      <div className="loading-wrap"><div className="spinner"/><span>Carregando...</span></div>
+    </Layout>
+  )
+
+  if (error) return (
+    <Layout title="Dashboard">
+      <div className="alert alert-error">{error}</div>
+    </Layout>
+  )
+
+  const areas = stats?.by_area || {}
+
   return (
-    <div>
-      <div style={{ marginBottom: 32 }}>
-        <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700, color: '#1e293b' }}>
-          Olá, {user?.full_name?.split(' ')[0]} 👋
-        </h1>
-        <p style={{ margin: '4px 0 0', color: '#64748b' }}>
-          Bem-vindo à plataforma de anamnese com pacientes virtuais
-        </p>
+    <Layout title="Dashboard">
+      {/* Stats */}
+      <div className="grid-4 mb-24">
+        <div className="stat-card">
+          <div className="stat-value">{stats?.total_patients ?? 0}</div>
+          <div className="stat-label">Pacientes virtuais</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">{stats?.total_chunks ?? 0}</div>
+          <div className="stat-label">Fragmentos indexados</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">{Object.keys(areas).length}</div>
+          <div className="stat-label">Areas clinicas</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">
+            {stats?.coverage_percent != null ? `${stats.coverage_percent}%` : '--'}
+          </div>
+          <div className="stat-label">Cobertura KB</div>
+        </div>
       </div>
 
-      {loading ? (
-        <div style={{ color: '#64748b' }}>Carregando estatísticas...</div>
-      ) : (
-        <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 20, marginBottom: 32 }}>
-            <StatCard icon="👥" label="Pacientes Virtuais" value={stats?.total_patients} color="#3b82f6" to="/pacientes" />
-            <StatCard icon="📚" label="Fragmentos de Conhecimento" value={stats?.total_chunks} color="#10b981" />
-            <StatCard icon="🔮" label="Cobertura de Embeddings" value={stats ? `${stats.embedding_coverage}%` : null} color="#8b5cf6" />
-            <StatCard icon="🏥" label="Áreas Clínicas" value={stats?.by_clinical_area ? Object.keys(stats.by_clinical_area).length : null} color="#f59e0b" />
-          </div>
-
-          {stats?.by_clinical_area && Object.keys(stats.by_clinical_area).length > 0 && (
-            <div style={{ background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-              <h2 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 700, color: '#1e293b' }}>
-                Pacientes por Área Clínica
-              </h2>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid #f1f5f9' }}>
-                    <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 13, color: '#64748b', fontWeight: 600 }}>Área</th>
-                    <th style={{ textAlign: 'right', padding: '8px 12px', fontSize: 13, color: '#64748b', fontWeight: 600 }}>Pacientes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(stats.by_clinical_area).map(([area, count]) => (
-                    <tr key={area} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={{ padding: '10px 12px', fontSize: 14, color: '#374151' }}>{area}</td>
-                      <td style={{ padding: '10px 12px', fontSize: 14, color: '#374151', textAlign: 'right', fontWeight: 600 }}>{count}</td>
+      {/* Areas table */}
+      {Object.keys(areas).length > 0 && (
+        <div className="card mb-24">
+          <h2 style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 16, fontWeight: 700, marginBottom: 16 }}>
+            Distribuicao por area clinica
+          </h2>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Area</th>
+                  <th>Pacientes</th>
+                  <th>Complexidade predominante</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(areas).map(([area, info]) => {
+                  const complexidade = typeof info === 'object' ? info.complexidade_predominante || info.complexidade : null
+                  const count = typeof info === 'object' ? info.count || info.total : info
+                  return (
+                    <tr key={area}>
+                      <td>{area}</td>
+                      <td>{count}</td>
+                      <td>
+                        {complexidade ? (
+                          <span className={`badge ${COMPLEXITY_BADGE[complexidade?.toLowerCase()] || 'badge-gray'}`}>
+                            {complexidade}
+                          </span>
+                        ) : '--'}
+                      </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16, marginTop: 24 }}>
-        <Link to="/pacientes" style={{
-          background: 'linear-gradient(135deg, #1e3a5f, #2563eb)', color: '#fff',
-          borderRadius: 12, padding: '24px 28px', textDecoration: 'none',
-          display: 'block', transition: 'transform 0.2s',
-        }}>
-          <div style={{ fontSize: 28, marginBottom: 8 }}>👥</div>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>Ver Pacientes</div>
-          <div style={{ fontSize: 13, opacity: 0.8, marginTop: 4 }}>Explore a base de casos clínicos</div>
+      {/* Actions */}
+      <div className="grid-2">
+        <Link to="/pacientes" style={{ textDecoration: 'none' }}>
+          <div className="card" style={{ cursor: 'pointer', transition: 'box-shadow .15s, border-color .15s' }}
+            onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 12px rgba(12,32,64,.12)'; e.currentTarget.style.borderColor = 'var(--blue-i)' }}
+            onMouseLeave={e => { e.currentTarget.style.boxShadow = ''; e.currentTarget.style.borderColor = '' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 8, background: 'var(--tint)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--blue-p)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                </svg>
+              </div>
+              <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: 700, fontSize: 15 }}>Ver pacientes</div>
+            </div>
+            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 13 }}>Explore os pacientes virtuais disponiveis na base de conhecimento.</p>
+          </div>
         </Link>
-        <Link to="/gerar" style={{
-          background: 'linear-gradient(135deg, #064e3b, #10b981)', color: '#fff',
-          borderRadius: 12, padding: '24px 28px', textDecoration: 'none',
-          display: 'block',
-        }}>
-          <div style={{ fontSize: 28, marginBottom: 8 }}>✨</div>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>Gerar Paciente</div>
-          <div style={{ fontSize: 13, opacity: 0.8, marginTop: 4 }}>Crie um novo paciente com IA</div>
-        </Link>
-        <Link to="/busca" style={{
-          background: 'linear-gradient(135deg, #4c1d95, #8b5cf6)', color: '#fff',
-          borderRadius: 12, padding: '24px 28px', textDecoration: 'none',
-          display: 'block',
-        }}>
-          <div style={{ fontSize: 28, marginBottom: 8 }}>🔍</div>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>Busca Semântica</div>
-          <div style={{ fontSize: 13, opacity: 0.8, marginTop: 4 }}>Pesquise na base de conhecimento</div>
+
+        <Link to="/gerar" style={{ textDecoration: 'none' }}>
+          <div className="card" style={{ cursor: 'pointer', transition: 'box-shadow .15s, border-color .15s' }}
+            onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 12px rgba(12,32,64,.12)'; e.currentTarget.style.borderColor = 'var(--blue-i)' }}
+            onMouseLeave={e => { e.currentTarget.style.boxShadow = ''; e.currentTarget.style.borderColor = '' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 8, background: 'var(--tint)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--blue-p)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 5v14M5 12h14"/>
+                </svg>
+              </div>
+              <div style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: 700, fontSize: 15 }}>Gerar novo paciente</div>
+            </div>
+            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 13 }}>Crie um novo paciente virtual com IA a partir de parametros clinicos.</p>
+          </div>
         </Link>
       </div>
-    </div>
+    </Layout>
   )
 }

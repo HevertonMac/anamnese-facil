@@ -1,133 +1,117 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
+import Layout from '../components/Layout'
 import client from '../api/client'
 
-const COMPLEXIDADE_COLORS = { baixa: '#10b981', media: '#f59e0b', alta: '#ef4444' }
+const COMPLEXITY_BADGE = { baixa: 'badge-green', media: 'badge-amber', alta: 'badge-red' }
 
 export default function PacientesPage() {
   const [patients, setPatients] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [filters, setFilters] = useState({ eixo_a: '', complexidade: '' })
-  const [search, setSearch] = useState('')
+  const [loading, setLoading]   = useState(true)
+  const [error, setError]       = useState('')
+  const [search, setSearch]     = useState('')
+  const [filterArea, setFilterArea]     = useState('')
+  const [filterComp, setFilterComp]     = useState('')
 
   useEffect(() => {
-    setLoading(true)
     const params = {}
-    if (filters.eixo_a) params.eixo_a = filters.eixo_a
-    if (filters.complexidade) params.complexidade = filters.complexidade
+    if (filterArea) params.eixo_a = filterArea
+    if (filterComp) params.complexidade = filterComp
     client.get('/kb/patients', { params })
-      .then(r => setPatients(r.data))
-      .catch(() => {})
+      .then(r => setPatients(r.data?.patients || r.data || []))
+      .catch(() => setError('Nao foi possivel carregar os pacientes.'))
       .finally(() => setLoading(false))
-  }, [filters])
+  }, [filterArea, filterComp])
+
+  const areas = [...new Set(patients.map(p => p.area_clinica).filter(Boolean))].sort()
 
   const filtered = patients.filter(p => {
     if (!search) return true
-    const s = search.toLowerCase()
+    const q = search.toLowerCase()
     return (
-      p.nome?.toLowerCase().includes(s) ||
-      p.diagnostico_principal?.toLowerCase().includes(s) ||
-      p.area_clinica?.toLowerCase().includes(s)
+      (p.nome || '').toLowerCase().includes(q) ||
+      (p.area_clinica || '').toLowerCase().includes(q) ||
+      (p.diagnostico_principal || '').toLowerCase().includes(q)
     )
   })
 
   return (
-    <div>
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700, color: '#1e293b' }}>Pacientes Virtuais</h1>
-        <p style={{ margin: '4px 0 0', color: '#64748b' }}>Base de casos clínicos para prática de anamnese</p>
-      </div>
+    <Layout title="Pacientes">
+      {/* Filters */}
+      <div className="flex-row mb-24" style={{ flexWrap: 'wrap' }}>
+        <div className="search-wrap" style={{ flex: '1 1 200px' }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input
+            className="form-control search-input"
+            placeholder="Buscar paciente..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
 
-      {/* Filtros */}
-      <div style={{ background: '#fff', borderRadius: 12, padding: 20, marginBottom: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.1)', display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-        <input
-          placeholder="🔍 Buscar por nome, diagnóstico..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{ flex: 1, minWidth: 200, padding: '8px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none' }}
-        />
-        <select
-          value={filters.eixo_a}
-          onChange={e => setFilters(f => ({ ...f, eixo_a: e.target.value }))}
-          style={{ padding: '8px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', background: '#fff' }}
-        >
-          <option value="">Todos os diagnósticos</option>
-          <option value="depressão">Depressão</option>
-          <option value="ansiedade">Ansiedade</option>
-          <option value="esquizofrenia">Esquizofrenia</option>
-          <option value="bipolar">Transtorno Bipolar</option>
-          <option value="toc">TOC</option>
-          <option value="ptsd">PTSD</option>
+        <select className="form-control" style={{ width: 180 }} value={filterArea} onChange={e => setFilterArea(e.target.value)}>
+          <option value="">Todas as areas</option>
+          {areas.map(a => <option key={a} value={a}>{a}</option>)}
         </select>
-        <select
-          value={filters.complexidade}
-          onChange={e => setFilters(f => ({ ...f, complexidade: e.target.value }))}
-          style={{ padding: '8px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', background: '#fff' }}
-        >
-          <option value="">Todas as complexidades</option>
+
+        <select className="form-control" style={{ width: 160 }} value={filterComp} onChange={e => setFilterComp(e.target.value)}>
+          <option value="">Todas complexidades</option>
           <option value="baixa">Baixa</option>
-          <option value="media">Média</option>
+          <option value="media">Media</option>
           <option value="alta">Alta</option>
         </select>
+
+        {(search || filterArea || filterComp) && (
+          <button className="btn btn-outline" onClick={() => { setSearch(''); setFilterArea(''); setFilterComp('') }}>
+            Limpar filtros
+          </button>
+        )}
       </div>
 
+      {error && <div className="alert alert-error">{error}</div>}
+
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 48, color: '#64748b' }}>Carregando pacientes...</div>
+        <div className="loading-wrap"><div className="spinner"/><span>Carregando pacientes...</span></div>
       ) : filtered.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 48, color: '#64748b' }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>👥</div>
-          <p>Nenhum paciente encontrado</p>
-          <Link to="/gerar" style={{ color: '#2563eb' }}>Gerar um novo paciente →</Link>
+        <div className="empty-state">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+          </svg>
+          <p>Nenhum paciente encontrado.</p>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
-          {filtered.map(p => (
-            <Link
-              key={p.id}
-              to={`/pacientes/${p.id}`}
-              style={{ textDecoration: 'none' }}
-            >
-              <div style={{
-                background: '#fff', borderRadius: 12, padding: '20px 24px',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)', transition: 'box-shadow 0.2s, transform 0.2s',
-                cursor: 'pointer',
-              }}
-                onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)'; e.currentTarget.style.transform = 'translateY(-2px)' }}
-                onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)'; e.currentTarget.style.transform = 'none' }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 16, color: '#1e293b' }}>{p.nome || 'Paciente'}</div>
-                    <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>
-                      {p.idade ? `${p.idade} anos` : ''}{p.genero ? ` · ${p.genero}` : ''}
+        <>
+          <p className="text-muted mb-16">{filtered.length} paciente{filtered.length !== 1 ? 's' : ''} encontrado{filtered.length !== 1 ? 's' : ''}</p>
+          <div className="patient-grid">
+            {filtered.map(p => {
+              const compKey = (p.complexidade || '').toLowerCase()
+              return (
+                <Link key={p.id} to={`/pacientes/${p.id}`} className="patient-card">
+                  <div className="patient-card-name">{p.nome || 'Paciente virtual'}</div>
+                  <div className="patient-card-meta">
+                    {[p.idade ? `${p.idade} anos` : null, p.genero].filter(Boolean).join(' · ')}
+                  </div>
+                  <div className="flex-row" style={{ flexWrap: 'wrap', gap: 6 }}>
+                    {p.area_clinica && <span className="badge badge-blue">{p.area_clinica}</span>}
+                    {p.complexidade && (
+                      <span className={`badge ${COMPLEXITY_BADGE[compKey] || 'badge-gray'}`}>
+                        {p.complexidade}
+                      </span>
+                    )}
+                  </div>
+                  {p.diagnostico_principal && (
+                    <div style={{ marginTop: 10, fontSize: 12.5, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                      {p.diagnostico_principal}
                     </div>
-                  </div>
-                  {p.complexidade && (
-                    <span style={{
-                      fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20,
-                      background: COMPLEXIDADE_COLORS[p.complexidade] + '20',
-                      color: COMPLEXIDADE_COLORS[p.complexidade],
-                    }}>
-                      {p.complexidade}
-                    </span>
                   )}
-                </div>
-                {p.diagnostico_principal && (
-                  <div style={{
-                    fontSize: 13, color: '#374151', background: '#f8fafc',
-                    borderRadius: 6, padding: '6px 10px', marginBottom: 10,
-                  }}>
-                    📋 {p.diagnostico_principal}
-                  </div>
-                )}
-                {p.area_clinica && (
-                  <div style={{ fontSize: 12, color: '#64748b' }}>🏥 {p.area_clinica}</div>
-                )}
-              </div>
-            </Link>
-          ))}
-        </div>
+                </Link>
+              )
+            })}
+          </div>
+        </>
       )}
-    </div>
+    </Layout>
   )
 }

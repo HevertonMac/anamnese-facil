@@ -1,12 +1,19 @@
 import Sidebar from './Sidebar'
 
-export default function Layout({ children }) {
+export default function Layout({ title, children }) {
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: '#f1f5f9' }}>
+    <div style={{ display: 'flex' }}>
       <Sidebar />
-      <main style={{ flex: 1, marginLeft: 240, padding: 32, maxWidth: 'calc(100vw - 240px)' }}>
-        {children}
-      </main>
+      <div className="layout">
+        {title && (
+          <div className="topbar">
+            <h1 className="topbar-title">{title}</h1>
+          </div>
+        )}
+        <div className="page-content">
+          {children}
+        </div>
+      </div>
     </div>
   )
 }

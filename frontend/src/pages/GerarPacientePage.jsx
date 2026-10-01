@@ -1,29 +1,29 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import Layout from '../components/Layout'
 import client from '../api/client'
 
-const AREAS = ['Psiquiatria', 'Clínica Médica', 'Cardiologia', 'Neurologia', 'Geriatria', 'Pediatria']
-const COMPLEXIDADES = [
-  { value: 'baixa', label: 'Baixa', desc: 'Caso simples, ideal para iniciantes' },
-  { value: 'media', label: 'Média', desc: 'Caso moderado com comorbidades' },
-  { value: 'alta', label: 'Alta', desc: 'Caso complexo com múltiplos diagnósticos' },
+const AREAS = [
+  'Psicologia Clinica', 'Psiquiatria', 'Neurologia', 'Cardiologia',
+  'Endocrinologia', 'Oncologia', 'Pediatria', 'Geriatria',
+  'Medicina de Familia', 'Clinica Medica',
 ]
+
+const COMPLEXITY_BADGE = { baixa: 'badge-green', media: 'badge-amber', alta: 'badge-red' }
 
 export default function GerarPacientePage() {
   const navigate = useNavigate()
   const [form, setForm] = useState({
-    area_clinica: 'Psiquiatria',
+    area_clinica: '',
     diagnostico: '',
     complexidade: 'media',
     instrucoes_adicionais: '',
   })
   const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState(null)
-  const [error, setError] = useState('')
+  const [error, setError]     = useState('')
+  const [result, setResult]   = useState(null)
 
-  function setField(k, v) {
-    setForm(f => ({ ...f, [k]: v }))
-  }
+  function update(k, v) { setForm(f => ({ ...f, [k]: v })) }
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -31,132 +31,171 @@ export default function GerarPacientePage() {
     setError('')
     setResult(null)
     try {
-      const { data } = await client.post('/patients/generate', form)
-      setResult(data)
+      const r = await client.post('/patients/generate', form)
+      setResult(r.data)
     } catch (err) {
-      setError(err.response?.data?.detail || 'Erro ao gerar paciente. Verifique a chave OpenAI.')
+      setError(err.response?.data?.detail || 'Erro ao gerar paciente.')
     } finally {
       setLoading(false)
     }
   }
 
-  return (
-    <div>
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700, color: '#1e293b' }}>✨ Gerar Paciente Virtual</h1>
-        <p style={{ margin: '4px 0 0', color: '#64748b' }}>Use IA para criar um novo caso clínico realista</p>
-      </div>
+  const compKey = (result?.complexidade || '').toLowerCase()
 
-      <div style={{ display: 'grid', gridTemplateColumns: result ? '1fr 1fr' : '1fr', gap: 24 }}>
-        <div style={{ background: '#fff', borderRadius: 12, padding: 28, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+  return (
+    <Layout title="Gerar Paciente">
+      <div className="grid-2" style={{ alignItems: 'start' }}>
+        {/* Form */}
+        <div className="card">
+          <h2 style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Novo paciente virtual</h2>
+          <p style={{ margin: '0 0 20px', color: 'var(--text-muted)', fontSize: 13 }}>
+            Preencha os parametros clinicos. A IA ira gerar um caso realista e coerente.
+          </p>
+
+          {error && <div className="alert alert-error">{error}</div>}
+
           <form onSubmit={handleSubmit}>
-            <div style={{ marginBottom: 20 }}>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>
-                🏥 Área Clínica
-              </label>
-              <select
-                value={form.area_clinica}
-                onChange={e => setField('area_clinica', e.target.value)}
-                style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', background: '#fff' }}
-              >
+            <div className="form-group">
+              <label className="form-label">Area clinica</label>
+              <select className="form-control" value={form.area_clinica} onChange={e => update('area_clinica', e.target.value)}>
+                <option value="">Selecione uma area...</option>
                 {AREAS.map(a => <option key={a} value={a}>{a}</option>)}
               </select>
             </div>
 
-            <div style={{ marginBottom: 20 }}>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>
-                📋 Diagnóstico <span style={{ fontWeight: 400, color: '#94a3b8' }}>(opcional)</span>
-              </label>
+            <div className="form-group">
+              <label className="form-label">Diagnostico (opcional)</label>
               <input
+                className="form-control"
+                placeholder="Ex: Transtorno Depressivo Maior"
                 value={form.diagnostico}
-                onChange={e => setField('diagnostico', e.target.value)}
-                placeholder="Ex: Transtorno Depressivo Maior, Esquizofrenia..."
-                style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
+                onChange={e => update('diagnostico', e.target.value)}
               />
             </div>
 
-            <div style={{ marginBottom: 20 }}>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>
-                ⚡ Complexidade
-              </label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                {COMPLEXIDADES.map(c => (
-                  <div
-                    key={c.value}
-                    onClick={() => setField('complexidade', c.value)}
+            <div className="form-group">
+              <label className="form-label">Complexidade do caso</label>
+              <div className="flex-row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                {['baixa', 'media', 'alta'].map(c => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => update('complexidade', c)}
+                    className={`badge ${COMPLEXITY_BADGE[c]}`}
                     style={{
-                      padding: '10px 12px', border: `2px solid ${form.complexidade === c.value ? '#2563eb' : '#e2e8f0'}`,
-                      borderRadius: 8, cursor: 'pointer',
-                      background: form.complexidade === c.value ? '#eff6ff' : '#fff',
-                      transition: 'all 0.15s',
+                      cursor: 'pointer',
+                      border: form.complexidade === c ? '2px solid currentColor' : '2px solid transparent',
+                      padding: '6px 16px',
+                      fontSize: 13,
+                      background: form.complexidade === c ? undefined : 'var(--tint)',
+                      color: form.complexidade === c ? undefined : 'var(--text-muted)',
+                      transition: 'all .15s',
                     }}
                   >
-                    <div style={{ fontWeight: 600, fontSize: 13, color: form.complexidade === c.value ? '#2563eb' : '#374151' }}>{c.label}</div>
-                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{c.desc}</div>
-                  </div>
+                    {c.charAt(0).toUpperCase() + c.slice(1)}
+                  </button>
                 ))}
               </div>
             </div>
 
-            <div style={{ marginBottom: 24 }}>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>
-                📝 Instruções Adicionais <span style={{ fontWeight: 400, color: '#94a3b8' }}>(opcional)</span>
-              </label>
+            <div className="form-group">
+              <label className="form-label">Instrucoes adicionais (opcional)</label>
               <textarea
+                className="form-control"
+                rows={4}
+                placeholder="Ex: paciente idoso, historia de trauma, sem suporte familiar..."
                 value={form.instrucoes_adicionais}
-                onChange={e => setField('instrucoes_adicionais', e.target.value)}
-                placeholder="Ex: Paciente idosa, viúva, com baixa escolaridade..."
-                rows={3}
-                style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}
+                onChange={e => update('instrucoes_adicionais', e.target.value)}
               />
             </div>
 
-            {error && (
-              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px', marginBottom: 16, color: '#dc2626', fontSize: 13 }}>
-                {error}
-              </div>
-            )}
-
             <button
+              className="btn btn-primary"
               type="submit"
-              disabled={loading}
-              style={{
-                width: '100%', padding: '14px', background: loading ? '#93c5fd' : 'linear-gradient(135deg, #1d4ed8, #2563eb)',
-                color: '#fff', border: 'none', borderRadius: 10, fontSize: 15, fontWeight: 600,
-                cursor: loading ? 'not-allowed' : 'pointer',
-              }}
+              disabled={loading || !form.area_clinica}
+              style={{ width: '100%', justifyContent: 'center' }}
             >
-              {loading ? '✨ Gerando com IA...' : '✨ Gerar Paciente Virtual'}
+              {loading ? (
+                <>
+                  <div style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,.4)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin .7s linear infinite' }}/>
+                  Gerando paciente...
+                </>
+              ) : (
+                <>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 5v14M5 12h14"/>
+                  </svg>
+                  Gerar paciente
+                </>
+              )}
             </button>
           </form>
         </div>
 
-        {result && (
-          <div style={{ background: '#fff', borderRadius: 12, padding: 28, boxShadow: '0 1px 3px rgba(0,0,0,0.1)', overflow: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#1e293b' }}>✅ Paciente Gerado</h3>
-              {result.id && (
-                <button
-                  onClick={() => navigate(`/pacientes/${result.id}`)}
-                  style={{ padding: '6px 14px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}
-                >
-                  Ver detalhe →
-                </button>
+        {/* Result */}
+        <div>
+          {!result && !loading && (
+            <div className="card" style={{ textAlign: 'center', padding: '48px 32px', color: 'var(--text-muted)' }}>
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: .35, margin: '0 auto 12px', display: 'block' }}>
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+              </svg>
+              <p style={{ margin: 0, fontSize: 14 }}>O paciente gerado aparecera aqui.</p>
+            </div>
+          )}
+
+          {loading && (
+            <div className="card loading-wrap" style={{ minHeight: 200 }}>
+              <div className="spinner"/>
+              <span>Gerando caso clinico com IA...</span>
+            </div>
+          )}
+
+          {result && (
+            <div className="card">
+              <div style={{ marginBottom: 16 }}>
+                <h2 style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 20, fontWeight: 700, marginBottom: 8 }}>
+                  {result.nome || 'Novo paciente'}
+                </h2>
+                <div className="flex-row" style={{ flexWrap: 'wrap', gap: 6 }}>
+                  {result.area_clinica && <span className="badge badge-blue">{result.area_clinica}</span>}
+                  {result.complexidade && (
+                    <span className={`badge ${COMPLEXITY_BADGE[compKey] || 'badge-gray'}`}>
+                      {result.complexidade}
+                    </span>
+                  )}
+                  {result.idade && <span className="badge badge-gray">{result.idade} anos</span>}
+                </div>
+              </div>
+
+              {result.diagnostico_principal && (
+                <>
+                  <div className="detail-section">Diagnostico</div>
+                  <p style={{ margin: '0 0 16px', fontSize: 13.5 }}>{result.diagnostico_principal}</p>
+                </>
               )}
+
+              {result.case_data?.queixa_principal && (
+                <>
+                  <div className="detail-section">Queixa principal</div>
+                  <p style={{ margin: '0 0 16px', fontSize: 13.5, lineHeight: 1.65 }}>{result.case_data.queixa_principal}</p>
+                </>
+              )}
+
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
+                {result.id && (
+                  <button className="btn btn-primary" onClick={() => navigate(`/pacientes/${result.id}`)}>
+                    Ver perfil completo
+                  </button>
+                )}
+                <button className="btn btn-outline" onClick={() => { setResult(null); setForm({ area_clinica: '', diagnostico: '', complexidade: 'media', instrucoes_adicionais: '' }) }}>
+                  Gerar outro
+                </button>
+              </div>
             </div>
-            <div style={{ fontSize: 13, color: '#374151', marginBottom: 12 }}>
-              <strong>{result.nome || result.name || 'Paciente'}</strong>
-              {result.diagnostico_principal && <span style={{ color: '#64748b' }}> · {result.diagnostico_principal}</span>}
-            </div>
-            <pre style={{
-              background: '#f8fafc', borderRadius: 8, padding: 16, fontSize: 11,
-              overflow: 'auto', maxHeight: 400, color: '#374151', margin: 0, lineHeight: 1.6,
-            }}>
-              {JSON.stringify(result, null, 2)}
-            </pre>
-          </div>
-        )}
+          )}
+        </div>
       </div>
-    </div>
+    </Layout>
   )
 }
