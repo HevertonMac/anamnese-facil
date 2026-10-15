@@ -14,7 +14,7 @@ services:
 
     envVars:
       # Cole a connection string do Supabase (Direct connection, porta 5432)
-      # Formato: postgresql+asyncpg://postgres.xxxx:SENHA@db.xxxx.supabase.co:5432/postgres
+      # postgresql+asyncpg://postgres.xxxx:SENHA@db.xxxx.supabase.co:5432/postgres
       - key: DATABASE_URL
         sync: false
 
