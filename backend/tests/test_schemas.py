@@ -6,7 +6,7 @@ Verifica:
   - Validação e defaults de PatientGenerateRequest
   - PatientGenerateResponse aninha VirtualPatientDetail (com case_data)
   - Todos os valores de EixoA/B/C e Complexidade têm label correspondente
-  - EIXO_A_MAP no ingest cobre todos os valores de EixoA
+  - map_eixo_a/map_eixo_b/map_complexidade do ingest cobrem todos os valores de EixoA
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from app.schemas.patient import (
     VirtualPatientDetail,
     VirtualPatientResponse,
 )
-from scripts.ingest.ingest_cases import EIXO_A_MAP, EIXO_B_MAP, COMPLEXIDADE_MAP
+from scripts.ingest.case_parser import map_complexidade, map_eixo_a, map_eixo_b
 
 
 # ===========================================================================
@@ -145,22 +145,22 @@ class TestEnumConsistency:
             )
 
     def test_eixo_a_map_covers_all_enum_values(self):
-        """Todos os valores do enum EixoA devem ser reconhecidos pelo EIXO_A_MAP do ingest."""
+        """Todos os valores do enum EixoA devem ser reconhecidos pelo map_eixo_a do ingest."""
         for value in EixoA:
-            assert value.value in EIXO_A_MAP, (
-                f"EixoA.{value.name} ({value.value!r}) não está mapeado em EIXO_A_MAP"
+            assert map_eixo_a(value.value) == value.value, (
+                f"EixoA.{value.name} ({value.value!r}) não é reconhecido por map_eixo_a"
             )
 
     def test_eixo_b_map_covers_all_enum_values(self):
         for value in EixoB:
-            assert value.value in EIXO_B_MAP, (
-                f"EixoB.{value.name} ({value.value!r}) não está mapeado em EIXO_B_MAP"
+            assert map_eixo_b(value.value) == value.value, (
+                f"EixoB.{value.name} ({value.value!r}) não é reconhecido por map_eixo_b"
             )
 
     def test_complexidade_map_covers_all_enum_values(self):
         for value in ComplexidadeEnum:
-            assert value.value in COMPLEXIDADE_MAP, (
-                f"ComplexidadeEnum.{value.name} não está em COMPLEXIDADE_MAP"
+            assert map_complexidade(value.value) == value.value, (
+                f"ComplexidadeEnum.{value.name} não é reconhecido por map_complexidade"
             )
 
     def test_no_taciturno_in_eixo_b(self):

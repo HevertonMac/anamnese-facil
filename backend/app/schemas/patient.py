@@ -59,6 +59,25 @@ class CaseData(BaseModel):
     hipoteses_diagnosticas: list[str] = Field(default_factory=list)
     caracteristicas_agente: Optional[str] = None
     raw_sections: dict[str, str] = Field(default_factory=dict)
+    # ── Campos gravados pelo pipeline de ingestão (scripts/ingest, schema_version 2) ──
+    schema_version: Optional[int] = None
+    arquivo_origem: Optional[str] = None
+    antecedentes_gineco_obstetricos: Optional[dict] = None
+    observacoes_especificas: Optional[str] = None
+    exames_complementares: Optional[str] = None
+    # {principal, fonte, diferenciais, justificativa, hipoteses, ...} — conteúdo do facilitador
+    diagnostico: Optional[dict] = None
+    objetivos_educacionais: list[str] = Field(default_factory=list)
+    referencias: list[str] = Field(default_factory=list)
+    contexto_facilitador: Optional[str] = None
+    # Seções que não podem ser reveladas ao estudante / usadas como fala do paciente.
+    secoes_restritas: list[str] = Field(default_factory=list)
+    metadados: Optional[dict] = None
+    # {eixo_a, eixo_b, eixo_c, complexidade, fontes: {campo: origem}}
+    classificacao: Optional[dict] = None
+    # {avisos, divergencias, secoes_encontradas, revisao_necessaria}
+    qualidade: Optional[dict] = None
+    titulos_originais: dict[str, str] = Field(default_factory=dict)
 
 
 class VirtualPatientCreate(BaseModel):
