@@ -170,3 +170,65 @@ class PatientGenerateResponse(BaseModel):
     patient: VirtualPatientDetail
     chunks_ingested: int
     generated_by: str = "gpt-4o"
+
+
+# ── Cadastro manual / importação de DOCX ──────────────────────────────────────
+
+class PatientManualRequest(BaseModel):
+    """Cadastro manual — sem fallbacks; campos obrigatórios validados."""
+    # Classificação clínica
+    eixo_a: str = Field(min_length=1)
+    eixo_b: str = "colaborativo"
+    eixo_c: str = "baixo_letramento_vulneravel"
+    complexidade: str = "media"
+
+    # Identificação — obrigatórios
+    nome: str = Field(min_length=2, max_length=200)
+    idade: int = Field(ge=0, le=130)
+    sexo: str = Field(pattern="^[MF]$")
+    queixa_principal: str = Field(min_length=5)
+    diagnostico_principal: str = Field(min_length=3)
+
+    # Identificação — opcionais
+    cor: Optional[str] = None
+    estado_civil: Optional[str] = None
+    profissao: Optional[str] = None
+    religiao: Optional[str] = None
+    residencia: Optional[str] = None
+    naturalidade: Optional[str] = None
+
+    # Seções narrativas
+    historia_doenca_atual: str = Field(min_length=50, description="Mínimo 50 caracteres")
+    interrogatorio_complementar: Optional[str] = None
+    historia_fisiologica: Optional[str] = None
+    historia_familiar: Optional[str] = None
+    exame_fisico: Optional[str] = None
+    caracteristicas_agente: Optional[str] = None
+
+    # História patológica
+    doencas_previas: list[str] = Field(default_factory=list)
+    cirurgias: list[str] = Field(default_factory=list)
+    internacoes: list[str] = Field(default_factory=list)
+    medicamentos_em_uso: list[str] = Field(default_factory=list)
+    alergias: list[str] = Field(default_factory=list)
+    historia_patologica_texto: Optional[str] = None
+
+    # História social
+    tabagismo: Optional[str] = None
+    etilismo: Optional[str] = None
+    historia_social_texto: Optional[str] = None
+
+    # Hipóteses
+    hipoteses_diagnosticas: list[str] = Field(default_factory=list)
+
+
+class DocxValidationIssue(BaseModel):
+    field: str      # ex: "historia_doenca_atual"
+    severity: str   # "error" | "warning"
+    message: str
+
+
+class DocxParseResponse(BaseModel):
+    extracted: dict  # mesmo shape do PatientManualRequest
+    issues: list[DocxValidationIssue]
+    can_save: bool   # True se não há erros (só warnings)

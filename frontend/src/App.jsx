@@ -7,6 +7,7 @@ import PacientesPage from './pages/PacientesPage'
 import PacienteDetalhe from './pages/PacienteDetalhe'
 import BuscaSemanticaPage from './pages/BuscaSemanticaPage'
 import GerarPacientePage from './pages/GerarPacientePage'
+import CadastrarPacientePage from './pages/CadastrarPacientePage'
 
 function AppRoutes() {
   return (
@@ -17,6 +18,7 @@ function AppRoutes() {
       <Route path="/pacientes/:id" element={<PrivateRoute><PacienteDetalhe /></PrivateRoute>} />
       <Route path="/busca" element={<PrivateRoute><BuscaSemanticaPage /></PrivateRoute>} />
       <Route path="/gerar" element={<PrivateRoute><GerarPacientePage /></PrivateRoute>} />
+      <Route path="/cadastrar" element={<PrivateRoute><CadastrarPacientePage /></PrivateRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

@@ -442,6 +442,7 @@ tr:hover td { background: var(--tint); }
 /* ─── Alerts ──────────────────────────────── */
 .alert { padding: 11px 14px; border-radius: 7px; font-size: 13.5px; margin-bottom: 14px; }
 .alert-error   { background: #FEE2E2; color: #991B1B; border: 1px solid #FCA5A5; }
+.alert-warn    { background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D; }
 .alert-success { background: #D1FAE5; color: #065F46; border: 1px solid #6EE7B7; }
 
 /* ─── Flex helpers ────────────────────────── */
@@ -512,3 +513,7 @@ tr:hover td { background: var(--tint); }
   display: flex; flex-direction: column; align-items: center;
   padding: 56px; gap: 12px; color: var(--text-muted);
 }
+
+/* ─── Validação de formulários ─── */
+.field-error { font-size: 11.5px; color: var(--danger); margin-top: 3px; }
+.field-note  { font-size: 11.5px; color: #92400E; margin-top: 3px; }

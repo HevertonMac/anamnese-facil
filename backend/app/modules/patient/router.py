@@ -13,15 +13,20 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tempfile
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
 from app.db.models import KnowledgeChunk, VirtualPatient
-from app.schemas.patient import PatientGenerateRequest, PatientGenerateResponse, VirtualPatientDetail, VirtualPatientResponse
+from app.schemas.patient import (
+    DocxParseResponse, DocxValidationIssue, PatientGenerateRequest, PatientGenerateResponse,
+    PatientManualRequest, VirtualPatientDetail, VirtualPatientResponse,
+)
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/patients", tags=["patients"])
@@ -492,4 +497,246 @@ async def generate_patient(
         patient=VirtualPatientDetail.model_validate(patient),
         chunks_ingested=len(all_chunks),
         generated_by="gpt-4o",
+    )
+
+
+@router.post(
+    "/manual",
+    response_model=PatientGenerateResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Cadastra um paciente a partir de formulário manual (sem LLM)",
+)
+async def create_patient_manual(
+    req: PatientManualRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    case_data = {
+        "identificacao": {
+            "nome": req.nome, "idade": req.idade, "sexo": req.sexo,
+            "cor": req.cor, "estado_civil": req.estado_civil,
+            "profissao": req.profissao, "religiao": req.religiao,
+            "residencia": req.residencia, "naturalidade": req.naturalidade,
+        },
+        "queixa_principal_texto": req.queixa_principal,
+        "historia_doenca_atual": req.historia_doenca_atual,
+        "interrogatorio_complementar": {"texto": req.interrogatorio_complementar} if req.interrogatorio_complementar else {},
+        "historia_fisiologica": {"texto_livre": req.historia_fisiologica or ""},
+        "historia_patologica": {
+            "doencas_previas": req.doencas_previas,
+            "cirurgias": req.cirurgias,
+            "internacoes": req.internacoes,
+            "medicamentos_em_uso": req.medicamentos_em_uso,
+            "alergias": req.alergias,
+            "texto_livre": req.historia_patologica_texto or "",
+        },
+        "historia_familiar": {"texto_livre": req.historia_familiar or ""},
+        "historia_social": {
+            "tabagismo": req.tabagismo,
+            "etilismo": req.etilismo,
+            "texto_livre": req.historia_social_texto or "",
+        },
+        "exame_fisico": {"texto_livre": req.exame_fisico or ""},
+        "diagnostico_completo": req.diagnostico_principal,
+        "hipoteses_diagnosticas": req.hipoteses_diagnosticas or [req.diagnostico_principal],
+        "caracteristicas_agente": req.caracteristicas_agente or "",
+        "raw_sections": {},
+        "gerado_por_llm": False,
+    }
+
+    result = await db.execute(select(VirtualPatient.case_number))
+    case_num = next_case_number_sync([row[0] for row in result.fetchall()])
+
+    patient = VirtualPatient(
+        case_number=case_num,
+        eixo_a=req.eixo_a,
+        eixo_b=req.eixo_b,
+        eixo_c=req.eixo_c,
+        complexidade=req.complexidade,
+        nome=req.nome,
+        idade=req.idade,
+        sexo=req.sexo,
+        queixa_principal=req.queixa_principal,
+        diagnostico_principal=req.diagnostico_principal,
+        case_data=case_data,
+    )
+    db.add(patient)
+    await db.flush()
+    patient_id = patient.id
+    log.info(f"  Paciente manual #{case_num} ({req.nome}) inserido — id={patient_id}")
+
+    sections = {
+        "identificacao": f"Nome: {req.nome}. Idade: {req.idade} anos. Sexo: {'Masculino' if req.sexo == 'M' else 'Feminino'}.",
+        "queixa_principal": req.queixa_principal,
+        "historia_doenca_atual": req.historia_doenca_atual,
+        "interrogatorio_complementar": req.interrogatorio_complementar or "",
+        "historia_fisiologica": req.historia_fisiologica or "",
+        "historia_patologica": (req.historia_patologica_texto or "") + "\n" + ", ".join(req.medicamentos_em_uso),
+        "historia_familiar": req.historia_familiar or "",
+        "historia_social": req.historia_social_texto or "",
+        "exame_fisico": req.exame_fisico or "",
+        "caracteristicas_agente": req.caracteristicas_agente or "",
+        "hipoteses_diagnosticas": " | ".join(req.hipoteses_diagnosticas),
+    }
+    all_chunks: list[tuple[str, str, int]] = []
+    for section_name, section_text in sections.items():
+        for i, chunk in enumerate(chunk_text(section_text)):
+            all_chunks.append((section_name, chunk, i))
+
+    batch_size = 100
+    for batch_start in range(0, len(all_chunks), batch_size):
+        batch = all_chunks[batch_start: batch_start + batch_size]
+        embeddings = await get_embeddings([c[1] for c in batch])  # vetores zero sem OPENAI_API_KEY
+        for (section_name, content, chunk_index), embedding in zip(batch, embeddings):
+            db.add(KnowledgeChunk(
+                patient_id=patient_id,
+                section=section_name,
+                content=content,
+                embedding=embedding,
+                chunk_index=chunk_index,
+                token_count=len(content.split()),
+            ))
+
+    await db.commit()
+    return PatientGenerateResponse(
+        patient=VirtualPatientDetail.model_validate(patient),
+        chunks_ingested=len(all_chunks),
+        generated_by="manual",
+    )
+
+
+_REQUIRED_DOCX_FIELDS = {
+    "nome": "Nome do paciente",
+    "idade": "Idade",
+    "sexo": "Sexo (M ou F)",
+    "queixa_principal": "Queixa principal",
+    "diagnostico_principal": "Diagnóstico principal",
+    "historia_doenca_atual": "História da doença atual",
+    "eixo_a": "Área clínica (Eixo A)",
+}
+
+_OPTIONAL_DOCX_FIELDS = {
+    "exame_fisico": "Exame físico",
+    "interrogatorio_complementar": "Interrogatório complementar",
+    "historia_fisiologica": "História fisiológica",
+    "historia_familiar": "História familiar",
+    "historia_social_texto": "História social",
+    "caracteristicas_agente": "Características do agente",
+}
+
+
+def extract_manual_fields(raw_text: str) -> dict[str, Any]:
+    """Texto do DOCX -> campos no shape de PatientManualRequest (reusa o parser da ingestão)."""
+    from scripts.ingest.case_parser import (
+        infer_eixo_c, labeled_blocks, map_complexidade, map_eixo_a, map_eixo_b,
+        parse_case, short_diagnosis,
+    )
+    from scripts.ingest.case_structure import structure_patologica, structure_social
+
+    parsed = parse_case(raw_text)
+    sec, meta, ident, dx = parsed["sections"], parsed["metadados"], parsed["identificacao"], parsed["diagnostico"]
+    patologica = structure_patologica(sec.get("historia_patologica", ""), labeled_blocks(sec.get("historia_patologica", "")))
+    social = structure_social(sec.get("historia_social", ""), labeled_blocks(sec.get("historia_social", "")))
+    eixo_c, _ = infer_eixo_c(meta.get("eixo_c_bruto", ""), ident.get("idade_meses"), ident.get("escolaridade", ""))
+    queixa = sec.get("queixa_principal", "") or meta.get("queixa_bruta", "")
+    queixa = queixa.split("\n\n")[0].strip() if queixa else ""
+
+    return {
+        "eixo_a": map_eixo_a(meta.get("eixo_a_bruto", "")) or "",
+        "eixo_b": map_eixo_b(meta.get("eixo_b_bruto", "")) or "colaborativo",
+        "eixo_c": eixo_c or "baixo_letramento_vulneravel",
+        "complexidade": map_complexidade(meta.get("complexidade_bruta", "")) or "media",
+        "nome": ident.get("nome", ""),
+        "idade": ident.get("idade"),
+        "sexo": ident.get("sexo", ""),
+        "cor": ident.get("cor", ""),
+        "estado_civil": ident.get("estado_civil", ""),
+        "profissao": ident.get("profissao", ""),
+        "religiao": ident.get("religiao", ""),
+        "residencia": ident.get("residencia", ""),
+        "naturalidade": ident.get("naturalidade", ""),
+        "queixa_principal": queixa,
+        "diagnostico_principal": short_diagnosis(dx["principal"]) if dx and dx.get("principal") else "",
+        "historia_doenca_atual": sec.get("historia_doenca_atual", ""),
+        "interrogatorio_complementar": sec.get("interrogatorio_complementar", ""),
+        "historia_fisiologica": sec.get("historia_fisiologica", ""),
+        "historia_familiar": sec.get("historia_familiar", ""),
+        "historia_social_texto": sec.get("historia_social", ""),
+        "tabagismo": social.get("tabagismo", ""),
+        "etilismo": social.get("etilismo", ""),
+        "exame_fisico": sec.get("exame_fisico", ""),
+        "caracteristicas_agente": sec.get("caracteristicas_agente", ""),
+        "hipoteses_diagnosticas": list(dx.get("hipoteses") or []) if dx else [],
+        "historia_patologica_texto": patologica.get("texto_livre", ""),
+        "doencas_previas": patologica.get("doencas_previas", []),
+        "cirurgias": patologica.get("cirurgias", []),
+        "internacoes": patologica.get("internacoes", []),
+        "medicamentos_em_uso": patologica.get("medicamentos_em_uso", []),
+        "alergias": patologica.get("alergias", []),
+    }
+
+
+def validate_extracted(extracted: dict[str, Any]) -> list[DocxValidationIssue]:
+    issues: list[DocxValidationIssue] = []
+
+    def add(field: str, severity: str, message: str) -> None:
+        issues.append(DocxValidationIssue(field=field, severity=severity, message=message))
+
+    for field, label in _REQUIRED_DOCX_FIELDS.items():
+        val = extracted.get(field)
+        if val is None or (isinstance(val, str) and not val.strip()):
+            add(field, "error", f"{label} não encontrado no documento")
+        elif field == "historia_doenca_atual" and len(val) < 50:
+            add(field, "error", f"História da doença atual muito curta ({len(val)} caracteres, mínimo 50)")
+        elif field == "sexo" and val not in ("M", "F"):
+            add(field, "error", f"Sexo inválido: '{val}'. Use M ou F")
+        elif field == "nome" and len(val.strip()) < 2:
+            add(field, "error", "Nome muito curto (mínimo 2 caracteres)")
+        elif field == "queixa_principal" and len(val.strip()) < 5:
+            add(field, "error", "Queixa principal muito curta (mínimo 5 caracteres)")
+        elif field == "diagnostico_principal" and len(val.strip()) < 3:
+            add(field, "error", "Diagnóstico principal muito curto (mínimo 3 caracteres)")
+        elif field == "idade" and not 0 <= val <= 130:
+            add(field, "error", f"Idade fora do intervalo (0–130): {val}")
+        elif field == "eixo_a" and val not in EIXO_A_LABELS:
+            add(field, "error", f"Área clínica '{val}' não reconhecida — selecione o Eixo A")
+
+    for field, label in _OPTIONAL_DOCX_FIELDS.items():
+        val = extracted.get(field)
+        if not val or len(val.strip()) < 5:
+            add(field, "warning", f"{label} ausente ou muito curto")
+    if not extracted.get("hipoteses_diagnosticas"):
+        add("hipoteses_diagnosticas", "warning", "Hipóteses diagnósticas não encontradas")
+    return issues
+
+
+@router.post(
+    "/parse-docx",
+    response_model=DocxParseResponse,
+    summary="Extrai os campos de um DOCX e lista problemas (não grava no banco)",
+)
+async def parse_docx_preview(file: UploadFile = File(...)):
+    if not (file.filename or "").lower().endswith(".docx"):
+        raise HTTPException(status_code=400, detail="Apenas arquivos .docx são aceitos")
+
+    content = await file.read()
+    with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        from scripts.ingest.ingest_cases import docx_to_text
+        extracted = extract_manual_fields(docx_to_text(Path(tmp_path)))
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="Erro ao processar DOCX: pandoc não está instalado no servidor")
+    except Exception as e:
+        log.error(f"parse-docx error: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao processar DOCX: {e}")
+    finally:
+        os.unlink(tmp_path)
+
+    issues = validate_extracted(extracted)
+    return DocxParseResponse(
+        extracted=extracted,
+        issues=issues,
+        can_save=not any(i.severity == "error" for i in issues),
     )
