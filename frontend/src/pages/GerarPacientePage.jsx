@@ -2,33 +2,16 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import client from '../api/client'
+import {
+  EIXO_A_OPTIONS as EIXO_A_LIST, EIXO_B_OPTIONS as EIXO_B_LIST, EIXO_C_OPTIONS as EIXO_C_LIST,
+  CONDICAO_SOCIAL_OPTIONS,
+} from '../caseModel'
 
 const COMPLEXITY_BADGE = { baixa: 'badge-green', media: 'badge-amber', alta: 'badge-red' }
 
-const EIXO_A_OPTIONS = [
-  { value: 'cardiovascular',      label: 'Cardiovascular' },
-  { value: 'respiratorio',        label: 'Respiratório' },
-  { value: 'gastrointestinal',    label: 'Gastrointestinal' },
-  { value: 'neurologico',         label: 'Neurológico' },
-  { value: 'musculoesqueletico',  label: 'Musculoesquelético' },
-  { value: 'endocrino_metabolico',label: 'Endócrino/Metabólico' },
-  { value: 'geniturinario',       label: 'Geniturinário' },
-]
-
-const EIXO_B_OPTIONS = [
-  { value: 'colaborativo', label: 'Colaborativo' },
-  { value: 'ansioso',      label: 'Ansioso' },
-  { value: 'resistente',   label: 'Resistente' },
-  { value: 'confuso',      label: 'Confuso' },
-  { value: 'minimizador',  label: 'Minimizador' },
-]
-
-const EIXO_C_OPTIONS = [
-  { value: 'baixo_letramento_vulneravel', label: 'Baixo letramento / vulnerável' },
-  { value: 'medio_letramento_media',      label: 'Letramento médio / classe média' },
-  { value: 'alto_letramento_bom_acesso',  label: 'Alto letramento / bom acesso' },
-  { value: 'pediatrico',                  label: 'Pediátrico' },
-]
+const EIXO_A_OPTIONS = EIXO_A_LIST.map(([value, label]) => ({ value, label }))
+const EIXO_B_OPTIONS = EIXO_B_LIST.map(([value, label]) => ({ value, label }))
+const EIXO_C_OPTIONS = EIXO_C_LIST.map(([value, label]) => ({ value, label }))
 
 const FAIXA_ETARIA_OPTIONS = [
   { value: '',           label: 'Qualquer (LLM decide)' },
@@ -45,6 +28,7 @@ export default function GerarPacientePage() {
     eixo_b: 'colaborativo',
     eixo_c: 'baixo_letramento_vulneravel',
     complexidade: 'media',
+    condicao_social: '',
     sexo: '',
     faixa_etaria: '',
     instrucoes_extras: '',
@@ -68,6 +52,7 @@ export default function GerarPacientePage() {
         eixo_c:      form.eixo_c,
         complexidade: form.complexidade,
       }
+      if (form.condicao_social) payload.condicao_social = form.condicao_social
       if (form.sexo)            payload.sexo = form.sexo
       if (form.faixa_etaria)    payload.faixa_etaria = form.faixa_etaria
       if (form.instrucoes_extras.trim()) payload.instrucoes_extras = form.instrucoes_extras.trim()
@@ -151,6 +136,15 @@ export default function GerarPacientePage() {
               <label className="form-label">Perfil socioeconômico (Eixo C)</label>
               <select className="form-control" value={form.eixo_c} onChange={e => update('eixo_c', e.target.value)}>
                 {EIXO_C_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+
+            {/* Condição social (modelo padronizado) */}
+            <div className="form-group">
+              <label className="form-label">Condição social (opcional)</label>
+              <select className="form-control" value={form.condicao_social} onChange={e => update('condicao_social', e.target.value)}>
+                <option value="">Deduzir do perfil socioeconômico</option>
+                {CONDICAO_SOCIAL_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </div>
 
@@ -269,7 +263,7 @@ export default function GerarPacientePage() {
                 )}
                 <button className="btn btn-outline" onClick={() => {
                   setResult(null)
-                  setForm({ eixo_a: '', eixo_b: 'colaborativo', eixo_c: 'baixo_letramento_vulneravel', complexidade: 'media', sexo: '', faixa_etaria: '', instrucoes_extras: '' })
+                  setForm({ eixo_a: '', eixo_b: 'colaborativo', eixo_c: 'baixo_letramento_vulneravel', complexidade: 'media', condicao_social: '', sexo: '', faixa_etaria: '', instrucoes_extras: '' })
                 }}>
                   Gerar outro
                 </button>

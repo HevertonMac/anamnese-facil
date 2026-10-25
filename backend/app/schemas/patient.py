@@ -1,7 +1,7 @@
 # backend/app/schemas/patient.py
 from __future__ import annotations
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional, Union
 from uuid import UUID
 from pydantic import BaseModel, Field
 
@@ -16,6 +16,13 @@ class Identificacao(BaseModel):
     religiao: Optional[str] = None
     residencia: Optional[str] = None
     naturalidade: Optional[str] = None
+    # Modelo padronizado (seção 1 completa)
+    nacionalidade: Optional[str] = None
+    profissao_anterior: Optional[str] = None
+    ocupacao: Optional[str] = None
+    escolaridade: Optional[str] = None
+    residencias_anteriores: Optional[str] = None
+    informante: Optional[str] = None
 
 
 class HistoriaFisiologica(BaseModel):
@@ -29,6 +36,7 @@ class HistoriaPatologica(BaseModel):
     medicamentos_em_uso: list[str] = Field(default_factory=list)
     alergias: list[str] = Field(default_factory=list)
     texto_livre: Optional[str] = None
+    medicacoes_observacao: Optional[str] = None  # "Observação:" da seção 6 (Medicações em Uso)
 
 
 class HistoriaFamiliar(BaseModel):
@@ -58,6 +66,10 @@ class CaseData(BaseModel):
     diagnostico_completo: Optional[str] = None
     hipoteses_diagnosticas: list[str] = Field(default_factory=list)
     caracteristicas_agente: Optional[str] = None
+    # Modelo padronizado: texto "Contexto para o aluno" e agente estruturado
+    # {perfil: texto, voz_postura_discurso: [..], vocabulario: [..], reacoes_emocionais: [..], ...}
+    contexto_aluno: Optional[str] = None
+    agente_ia: Optional[dict[str, Any]] = None
     raw_sections: dict[str, str] = Field(default_factory=dict)
     # ── Campos gravados pelo pipeline de ingestão (scripts/ingest, schema_version 2) ──
     schema_version: Optional[int] = None
@@ -160,6 +172,11 @@ class PatientGenerateRequest(BaseModel):
         default=None,
         description="Faixa etária: crianca (0-12), adolescente (13-17), adulto (18-59), idoso (60+). Se omitido, o LLM escolhe.",
     )
+    condicao_social: Optional[str] = Field(
+        default=None,
+        pattern="^(baixa|media|alta)$",
+        description="Condição social (modelo padronizado, Eixo C): baixa, media ou alta. Se omitida, o LLM deduz do Eixo C.",
+    )
     instrucoes_extras: Optional[str] = Field(
         default=None,
         description="Instruções livres para personalizar o caso gerado (ex: 'paciente gestante', 'contexto rural').",
@@ -181,6 +198,10 @@ class PatientManualRequest(BaseModel):
     eixo_b: str = "colaborativo"
     eixo_c: str = "baixo_letramento_vulneravel"
     complexidade: str = "media"
+    # Detalhes do perfil no modelo padronizado (o enum eixo_c não os distingue)
+    letramento: Optional[str] = Field(default=None, pattern="^(baixo|medio|alto)$")
+    condicao_social: Optional[str] = Field(default=None, pattern="^(baixa|media|alta)$")
+    nuance_eixo_b: Optional[str] = None
 
     # Identificação — obrigatórios
     nome: str = Field(min_length=2, max_length=200)
@@ -196,13 +217,25 @@ class PatientManualRequest(BaseModel):
     religiao: Optional[str] = None
     residencia: Optional[str] = None
     naturalidade: Optional[str] = None
+    nacionalidade: Optional[str] = None
+    profissao_anterior: Optional[str] = None
+    ocupacao: Optional[str] = None
+    escolaridade: Optional[str] = None
+    residencias_anteriores: Optional[str] = None
+    informante: Optional[str] = None
 
     # Seções narrativas
+    contexto_aluno: Optional[str] = None
     historia_doenca_atual: str = Field(min_length=50, description="Mínimo 50 caracteres")
-    interrogatorio_complementar: Optional[str] = None
+    # Um texto por sistema ({"cabeca": "...", ...}); texto único continua aceito (formato antigo).
+    interrogatorio_complementar: Optional[Union[dict[str, str], str]] = None
     historia_fisiologica: Optional[str] = None
     historia_familiar: Optional[str] = None
-    exame_fisico: Optional[str] = None
+    # {"sinais_vitais": {"pa": ...}, "exame_fisico_geral": "...", "aparelho_cardiovascular": "...", ...}
+    # ou texto único (formato antigo).
+    exame_fisico: Optional[Union[dict[str, Any], str]] = None
+    # {"perfil": "...", "voz_postura_discurso": ["..."], ...}; `caracteristicas_agente` (texto) é o formato antigo.
+    agente_ia: Optional[dict[str, Any]] = None
     caracteristicas_agente: Optional[str] = None
 
     # História patológica
@@ -212,8 +245,9 @@ class PatientManualRequest(BaseModel):
     medicamentos_em_uso: list[str] = Field(default_factory=list)
     alergias: list[str] = Field(default_factory=list)
     historia_patologica_texto: Optional[str] = None
+    medicacoes_observacao: Optional[str] = None
 
-    # História social
+    # História social (seção 8 do modelo: "Hábitos de vida")
     tabagismo: Optional[str] = None
     etilismo: Optional[str] = None
     historia_social_texto: Optional[str] = None

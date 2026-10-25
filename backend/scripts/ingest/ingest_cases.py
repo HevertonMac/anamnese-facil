@@ -46,72 +46,8 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 EMBEDDING_MODEL = os.environ.get("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 
 # Curadoria manual: tem prioridade sobre o que o parser extrai do documento (divergências são avisadas).
-KNOWN_CASES = {
-    # --- Semana 1: Eixo B colaborativo ---
-    1: {"nome": "Alfonso", "idade": 78, "sexo": "M", "eixo_a": "cardiovascular", "eixo_b": "colaborativo", "complexidade": "alta", "diagnostico_principal": "Hipotensão Postural", "queixa_principal": "Síncope"},
-    2: {"nome": "Roberto", "idade": 16, "sexo": "M", "eixo_a": "respiratorio", "eixo_b": "colaborativo", "complexidade": "baixa", "diagnostico_principal": "Asma", "queixa_principal": "Tosse"},
-    3: {"nome": "Dulce", "idade": 58, "sexo": "F", "eixo_a": "gastrointestinal", "eixo_b": "colaborativo", "complexidade": "media", "diagnostico_principal": "DRGE", "queixa_principal": "Dispepsia"},
-    4: {"nome": "Eliane", "idade": 42, "sexo": "F", "eixo_a": "neurologico", "eixo_b": "colaborativo", "complexidade": "alta", "diagnostico_principal": "Migrânea", "queixa_principal": "Cefaleia"},
-    5: {"nome": "Ronaldo", "idade": 62, "sexo": "M", "eixo_a": "musculoesqueletico", "eixo_b": "colaborativo", "complexidade": "baixa", "diagnostico_principal": "Gota", "queixa_principal": "Podagra"},
-    6: {"nome": "Lívio", "idade": 8, "sexo": "M", "eixo_a": "endocrino_metabolico", "eixo_b": "colaborativo", "complexidade": "alta", "diagnostico_principal": "DM1", "queixa_principal": "Sonolência"},
-    7: {"nome": "Luna", "idade": 38, "sexo": "F", "eixo_a": "geniturinario", "eixo_b": "colaborativo", "complexidade": "baixa", "diagnostico_principal": "ITU", "queixa_principal": "Disúria"},
-    8: {"nome": "Olívia", "idade": 21, "sexo": "F", "eixo_a": "cardiovascular", "eixo_b": "colaborativo", "complexidade": "media", "diagnostico_principal": "POTS", "queixa_principal": "Palpitação"},
-    9: {"nome": "Jorge", "idade": 44, "sexo": "M", "eixo_a": "respiratorio", "eixo_b": "colaborativo", "complexidade": "media", "diagnostico_principal": "Tuberculose", "queixa_principal": "Hemoptise"},
-    10: {"nome": "Maria", "idade": 64, "sexo": "F", "eixo_a": "gastrointestinal", "eixo_b": "colaborativo", "complexidade": "alta", "diagnostico_principal": "Coledocolitíase", "queixa_principal": "Dor Abdominal"},
-    # --- Semana 2: Eixo B ansioso ---
-    11: {"nome": "Fred", "idade": 22, "sexo": "M", "eixo_a": "neurologico", "eixo_b": "ansioso", "complexidade": "media", "diagnostico_principal": "Paralisia Facial Periférica", "queixa_principal": "Boca torta"},
-    12: {"nome": "Rute", "idade": 72, "sexo": "F", "eixo_a": "musculoesqueletico", "eixo_b": "ansioso", "complexidade": "media", "diagnostico_principal": "Osteoartrite de Joelhos", "queixa_principal": "Dor bilateral em joelhos"},
-    13: {"nome": "Sandra", "idade": 53, "sexo": "F", "eixo_a": "endocrino_metabolico", "eixo_b": "ansioso", "complexidade": "media", "diagnostico_principal": "Hipotireoidismo", "queixa_principal": "Astenia e ganho de peso"},
-    14: {"nome": "Lígia", "idade": 24, "sexo": "F", "eixo_a": "geniturinario", "eixo_b": "ansioso", "complexidade": "alta", "diagnostico_principal": "Nefrite Lúpica", "queixa_principal": "Hematúria e pressão alta"},
-    15: {"nome": "Lucas", "idade": 18, "sexo": "M", "eixo_a": "cardiovascular", "eixo_b": "ansioso", "complexidade": "media", "diagnostico_principal": "Síncope Vasovagal", "queixa_principal": "Desmaio"},
-    16: {"nome": "João Batista", "idade": 84, "sexo": "M", "eixo_a": "infectoparasitario", "eixo_b": "colaborativo", "complexidade": "media", "diagnostico_principal": "Erisipela", "queixa_principal": "Febre"},
-    17: {"nome": "Pedro Henrique", "idade": 22, "sexo": "M", "eixo_a": "gastrointestinal", "eixo_b": "ansioso", "complexidade": "media", "diagnostico_principal": "Hepatite A", "queixa_principal": "Urina escura"},
-    18: {"nome": "Pedro Augusto", "idade": 6, "sexo": "M", "eixo_a": "respiratorio", "eixo_b": "ansioso", "complexidade": "media", "diagnostico_principal": "Rinossinusite Aguda", "queixa_principal": "Tosse e coriza persistentes"},
-    19: {"nome": "Ana Beatriz", "idade": 41, "sexo": "F", "eixo_a": "gastrointestinal", "eixo_b": "ansioso", "complexidade": "alta", "diagnostico_principal": "Síndrome do Intestino Irritável", "queixa_principal": "Diarreia crônica e dor abdominal"},
-    20: {"nome": "Davi", "idade": 32, "sexo": "M", "eixo_a": "neurologico", "eixo_b": "ansioso", "complexidade": "alta", "diagnostico_principal": "Síndrome de Guillain-Barré", "queixa_principal": "Fraqueza progressiva nas pernas"},
-    # --- Semana 3: Eixo B minimizador ---
-    21: {"nome": "Débora", "idade": 38, "sexo": "F", "eixo_a": "endocrino_metabolico", "eixo_b": "minimizador", "complexidade": "media", "diagnostico_principal": "Insuficiência Ovariana Prematura", "queixa_principal": "Cansaço"},
-    22: {"nome": "Raimundo", "idade": 72, "sexo": "M", "eixo_a": "geniturinario", "eixo_b": "minimizador", "complexidade": "media", "diagnostico_principal": "Hiperplasia Prostática Benigna", "queixa_principal": "Noctúria"},
-    23: {"nome": "José Américo", "idade": 58, "sexo": "M", "eixo_a": "cardiovascular", "eixo_b": "minimizador", "complexidade": "alta", "diagnostico_principal": "Angina Estável", "queixa_principal": "Dor no peito"},
-    24: {"nome": "Antônia", "idade": 68, "sexo": "F", "eixo_a": "infectoparasitario", "eixo_b": "minimizador", "complexidade": "baixa", "diagnostico_principal": "Giardíase", "queixa_principal": "Dor abdominal"},
-    25: {"nome": "Fernanda", "idade": 32, "sexo": "F", "eixo_a": "respiratorio", "eixo_b": "minimizador", "complexidade": "alta", "diagnostico_principal": "EVALI", "queixa_principal": "Tosse e dispneia progressiva"},
-    26: {"nome": "Manoel José Ferreira", "idade": 65, "sexo": "M", "eixo_a": "gastrointestinal", "eixo_b": "minimizador", "complexidade": "alta", "diagnostico_principal": "Adenocarcinoma de Sigmoide", "queixa_principal": "Constipação progressiva"},
-    27: {"nome": "Isabela Mendonça Cavalcante", "idade": 28, "sexo": "F", "eixo_a": "neurologico", "eixo_b": "minimizador", "complexidade": "alta", "diagnostico_principal": "Esclerose Múltipla", "queixa_principal": "Visão embaçada"},
-    28: {"nome": "Cristina Fonseca Barros", "idade": 48, "sexo": "F", "eixo_a": "musculoesqueletico", "eixo_b": "minimizador", "complexidade": "media", "diagnostico_principal": "Síndrome de Sjögren Primária", "queixa_principal": "Olho seco"},
-    29: {"nome": "Miguel Henrique Sousa Melo", "idade": 7, "sexo": "M", "eixo_a": "endocrino_metabolico", "eixo_b": "minimizador", "complexidade": "alta", "diagnostico_principal": "Puberdade Precoce Central", "queixa_principal": "Crescimento acelerado e desenvolvimento precoce"},
-    30: {"nome": "Rafael Drummond Figueiredo", "idade": 18, "sexo": "M", "eixo_a": "geniturinario", "eixo_b": "minimizador", "complexidade": "alta", "diagnostico_principal": "Hemoglobinúria Paroxística Noturna", "queixa_principal": "Urina escura"},
-    # --- Semana 4-5: Eixo B resistente ---
-    31: {"nome": "Manoel Ferreira Sousa", "idade": 56, "sexo": "M", "eixo_a": "cardiovascular", "eixo_b": "resistente", "complexidade": "alta", "diagnostico_principal": "Cardiomiopatia Alcoólica", "queixa_principal": "Cansaço"},
-    32: {"nome": "José Raimundo Sousa", "idade": 62, "sexo": "M", "eixo_a": "respiratorio", "eixo_b": "resistente", "complexidade": "alta", "diagnostico_principal": "Pneumoconiose (Silicose)", "queixa_principal": "Tosse crônica"},
-    33: {"nome": "Rodrigo Leal Castelo", "idade": 28, "sexo": "M", "eixo_a": "infectoparasitario", "eixo_b": "resistente", "complexidade": "alta", "diagnostico_principal": "Síndrome Retroviral Aguda (HIV)", "queixa_principal": "Febre há dez dias"},
-    34: {"nome": "Fernanda Borges Nogueira", "idade": 32, "sexo": "F", "eixo_a": "gastrointestinal", "eixo_b": "resistente", "complexidade": "alta", "diagnostico_principal": "Retocolite Ulcerativa em Surto Grave", "queixa_principal": "Diarreia com sangue"},
-    36: {"nome": "Maria das Dores Pereira Lima", "idade": 48, "sexo": "F", "eixo_a": "musculoesqueletico", "eixo_b": "resistente", "complexidade": "media", "diagnostico_principal": "Síndrome do Túnel do Carpo Bilateral", "queixa_principal": "Fraqueza e dormência nas mãos"},
-    37: {"nome": "Luciana Mendes Cavalcanti", "idade": 42, "sexo": "F", "eixo_a": "endocrino_metabolico", "eixo_b": "resistente", "complexidade": "alta", "diagnostico_principal": "Doença de Graves", "queixa_principal": "Queda de cabelo intensa"},
-    38: {"nome": "Antônio Gomes Ferreira", "idade": 72, "sexo": "M", "eixo_a": "geniturinario", "eixo_b": "resistente", "complexidade": "alta", "diagnostico_principal": "Câncer de Próstata Localmente Avançado", "queixa_principal": "Jato urinário fraco"},
-    39: {"nome": "Raimundo Nonato Bonfim", "idade": 78, "sexo": "M", "eixo_a": "cardiovascular", "eixo_b": "resistente", "complexidade": "alta", "diagnostico_principal": "Estenose Aórtica Grave", "queixa_principal": "Aperto no peito ao subir escada"},
-    40: {"nome": "Francisco Souza Barbosa", "idade": 52, "sexo": "M", "eixo_a": "infectoparasitario", "eixo_b": "resistente", "complexidade": "alta", "diagnostico_principal": "Megaesôfago Chagásico", "queixa_principal": "Disfagia progressiva"},
-    # --- Casos 41-60: nome/idade/sexo/eixos A e C/diagnóstico vêm do próprio documento; aqui só o que o documento não traz ---
-    # (complexidade não consta nos .docx; eixo_b só onde o texto do documento é ambíguo; 41 não traz diagnóstico explícito)
-    41: {"complexidade": "alta", "queixa_principal": "Dor abdominal recorrente", "diagnostico_principal": "Pancreatite Crônica Alcoólica"},
-    42: {"complexidade": "alta", "queixa_principal": "Fraqueza e edema"},
-    43: {"complexidade": "media", "queixa_principal": "Dor nos joelhos"},
-    44: {"complexidade": "alta", "queixa_principal": "Cefaleia persistente"},
-    45: {"complexidade": "media", "queixa_principal": "Urina espumosa"},
-    46: {"complexidade": "media", "queixa_principal": "Febre há seis dias"},
-    47: {"eixo_b": "colaborativo", "complexidade": "alta", "queixa_principal": "Fraqueza, baixo crescimento e febre"},
-    48: {"complexidade": "media", "queixa_principal": "Tosse com catarro"},
-    49: {"complexidade": "media", "queixa_principal": "Dor epigástrica há dois anos"},
-    50: {"eixo_b": "ansioso", "complexidade": "alta", "queixa_principal": "Visão dupla intermitente"},
-    51: {"complexidade": "media", "queixa_principal": "Respiração rápida e chiado"},
-    52: {"complexidade": "media", "queixa_principal": "Dor lombar crônica"},
-    53: {"eixo_b": "resistente", "complexidade": "media", "queixa_principal": "Menstruação irregular e acne"},
-    54: {"complexidade": "media", "queixa_principal": "Disúria, dor lombar e febre"},
-    55: {"complexidade": "alta", "queixa_principal": "Febre, tosse e dor torácica"},
-    56: {"complexidade": "alta", "queixa_principal": "Hemoptise"},
-    57: {"complexidade": "media", "queixa_principal": "Dor abdominal"},
-    58: {"complexidade": "media", "queixa_principal": "Tremores e quedas"},
-    59: {"complexidade": "alta", "queixa_principal": "Tosse há quatro meses"},
-    60: {"complexidade": "alta", "queixa_principal": "Dor abdominal e tontura"},
+# Vazia: os casos 1-10 (modelo padronizado) vêm inteiramente do documento. Casos futuros só entram aqui se o documento não trouxer o dado.
+KNOWN_CASES: dict[int, dict] = {
 }
 
 def docx_to_text(docx_path: Path) -> str:
@@ -208,7 +144,8 @@ def resolve_classification(
     elif dx_doc:
         fontes["diagnostico_principal"] = dx_doc["fonte"]
         diagnostico = short_diagnosis(dx_doc["principal"])
-        if dx_doc["fonte"] == "documento:eixo_a":
+        if dx_doc["fonte"] == "documento:eixo_a" and not meta.get("eixo_b_nuance") and "eixo_c_letramento" not in meta:
+            # No modelo E (padronizado) o diagnóstico vive no Eixo A por desenho; só avisa nos modelos antigos.
             avisos.append("diagnóstico extraído do texto do Eixo A (sem seção de diagnóstico) — confirmar")
     else:
         fontes["diagnostico_principal"] = "ausente"
@@ -221,6 +158,11 @@ def resolve_classification(
         "diagnostico_principal": diagnostico,
         "diagnostico_principal_curto": truncate(diagnostico),
         "diagnostico_curado": dx_curado,
+        # Detalhes do modelo E (ausentes nos modelos antigos): o enum eixo_c não os distingue, então ficam aqui.
+        "letramento": meta.get("eixo_c_letramento"),
+        "condicao_social": meta.get("eixo_c_condicao_social"),
+        "perfil_sociodemografico": meta.get("eixo_c_descricao"),
+        "nuance_eixo_b": meta.get("eixo_b_nuance"),
         "fontes": fontes, "avisos": avisos, "divergencias": divergencias,
     }
     return classificacao, ident
@@ -250,7 +192,8 @@ def prepare_case(docx_path: Path, existing_eixo_c: Optional[str] = None) -> dict
     qualidade["revisao_necessaria"] = bool(
         classificacao["divergencias"]
         or any(classificacao["fontes"].get(f) == "padrao" for f in ("eixo_a", "eixo_b", "complexidade", "eixo_c"))
-        or classificacao["fontes"].get("diagnostico_principal") in ("curadoria", "ausente", "documento:eixo_a")
+        or classificacao["fontes"].get("diagnostico_principal") in ("curadoria", "ausente")
+        or any("diagnóstico extraído do texto do Eixo A" in a for a in qualidade["avisos"])
         or any("obrigatória" in a for a in qualidade["avisos"])
     )
     case_data = build_case_data(

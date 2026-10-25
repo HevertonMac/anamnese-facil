@@ -548,7 +548,7 @@ class TestQualityAndCaseData:
         }
         cd = build_case_data(parsed, ident_final=parsed["identificacao"], classificacao=classificacao,
                              qualidade=quality_report(parsed), arquivo="Caso 25.docx")
-        assert cd["schema_version"] == 2
+        assert cd["schema_version"] == 3
         assert cd["diagnostico"]["principal"].startswith("EVALI")
         assert cd["objetivos_educacionais"] == ["Reconhecer EVALI", "Investigar uso de vaping"]
         assert cd["referencias"] == ["CDC. Outbreak of lung injury, 2019."]

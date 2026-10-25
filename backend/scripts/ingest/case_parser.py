@@ -5,13 +5,17 @@ Parser dos casos clínicos (.docx -> texto -> estrutura).
 
 Funções puras, sem acesso a banco/rede, para poder ser testadas isoladamente.
 
-Os documentos seguem pelo menos quatro modelos diferentes:
+Os documentos seguem pelo menos cinco modelos diferentes:
   * modelo A (casos 1-15, 17-19, 41-60): seções numeradas "1. Identificação"... "9. Exame Físico",
     seguidas (nos casos 41-60) de blocos sem numeração ("Características do Agente de IA",
     "Diagnóstico principal (não informar ao aluno):").
   * modelo B (casos 16, 20): títulos em CAIXA ALTA com sufixos, ex.: "3. HISTÓRIA DA DOENÇA ATUAL (HDA)".
   * modelo C (casos 21-35): "Antecedentes Pessoais", "Hipótese Diagnóstica", "Objetivos Educacionais"...
   * modelo D (casos 36-40): roteiro do facilitador, sem seção de identificação.
+  * modelo E (padrão atual, casos revisados 1-10 em diante): cabeçalho "Metadados do caso" com Eixos A/B/C
+    (diagnóstico entre parênteses no Eixo A; complexidade e nuance no Eixo B; letramento e condição social no
+    Eixo C), "Contexto para o aluno", seções 1-9 (com 5.1/5.2 e "6. Medicações em Uso") e "Características do
+    Agente de IA" dividida em subseções (voz, vocabulário, reações, omissões, temas sensíveis, desafios...).
 
 Princípios:
   * Nenhum texto do documento é descartado: o que não for reconhecido fica em `metadados`
@@ -40,14 +44,19 @@ def norm(value: str) -> str:
 # (prefixo normalizado do título, chave canônica). A ordem importa (primeiro que casar).
 SECTION_ALIASES: list[tuple[str, str]] = [
     ("metadados do caso", "metadados"),
+    ("contexto para o aluno", "contexto_aluno"),
     ("identificacao", "identificacao"),
     ("queixa principal", "queixa_principal"),
     ("historia da doenca atual", "historia_doenca_atual"),
     ("interrogatorio complementar", "interrogatorio_complementar"),
     ("revisao de sistemas", "interrogatorio_complementar"),
     ("historia fisiologica", "historia_fisiologica"),
+    ("antecedentes fisiologicos", "historia_fisiologica"),
     ("historia patologica", "historia_patologica"),
+    ("antecedentes patologicos", "historia_patologica"),
     ("antecedentes pessoais", "historia_patologica"),
+    ("medicacoes em uso", "medicacoes_em_uso"),
+    ("medicamentos em uso", "medicacoes_em_uso"),
     ("antecedentes obstetricos", "antecedentes_gineco_obstetricos"),
     ("antecedentes nao se aplica", "antecedentes_gineco_obstetricos"),
     ("observacoes especificas", "observacoes_especificas"),
@@ -70,7 +79,7 @@ SECTION_ALIASES: list[tuple[str, str]] = [
 ]
 
 # Títulos que podem aparecer sem numeração.
-UNNUMBERED_OK = {"metadados do caso", "caracteristicas do agente", "diagnostico principal", "referencias"}
+UNNUMBERED_OK = {"metadados do caso", "contexto para o aluno", "caracteristicas do agente", "diagnostico principal", "referencias"}
 
 # Seções que não devem ser reveladas ao estudante nem usadas pelo "paciente" simulado como fala.
 SECOES_RESTRITAS = frozenset({
@@ -80,12 +89,14 @@ SECOES_RESTRITAS = frozenset({
 
 SECTION_LABELS = {
     "metadados": "Metadados",
+    "contexto_aluno": "Contexto para o aluno",
     "identificacao": "Identificação",
     "queixa_principal": "Queixa principal",
     "historia_doenca_atual": "História da doença atual",
     "interrogatorio_complementar": "Interrogatório complementar",
     "historia_fisiologica": "História fisiológica",
     "historia_patologica": "História patológica pregressa / antecedentes pessoais",
+    "medicacoes_em_uso": "Medicações em uso",
     "antecedentes_gineco_obstetricos": "Antecedentes gineco-obstétricos",
     "observacoes_especificas": "Observações específicas",
     "historia_familiar": "História familiar",
@@ -100,14 +111,29 @@ SECTION_LABELS = {
     "contexto_facilitador": "Contexto clínico para o facilitador",
 }
 
+# Subseções de "Características do Agente de IA" (modelo E) -> chave em case_data["agente_ia"].
+AGENTE_SUBSECOES: list[tuple[str, str]] = [
+    ("voz postura e discurso", "voz_postura_discurso"),
+    ("vocabulario", "vocabulario"),
+    ("reacoes emocionais", "reacoes_emocionais"),
+    ("o que omite", "omite_minimiza_distorce"),
+    ("temas sensiveis", "temas_sensiveis"),
+    ("desafios de comunicacao", "desafios_comunicacao"),
+    ("acompanhante", "acompanhante"),
+    ("dados revelados", "dados_so_por_interrogacao"),
+]
+
 REQUIRED_SECTIONS = ("queixa_principal", "historia_doenca_atual", "exame_fisico")
 EXPECTED_SECTIONS = (
     "identificacao", "interrogatorio_complementar", "historia_patologica",
     "historia_familiar", "historia_social",
 )
+EXPECTED_SECTIONS_MODELO_E = ("historia_fisiologica", "medicacoes_em_uso", "caracteristicas_agente")
 
 _SEPARATOR = re.compile(r"^\s*[-=_*─—]{4,}\s*$")
-_HEADING_NUM = re.compile(r"^\s*(\d{1,2})\s*[.)]\s+(.+?)\s*$")
+# "3. História...", "3) História..." ou subseção "5.1 Antecedentes Fisiológicos"
+_HEADING_NUM = re.compile(r"^\s*(?:\d{1,2}\s*[.)]|\d{1,2}\.\d{1,2})\s+(.+?)\s*$")
+_HEADING_NUM_PREFIX = re.compile(r"^\s*(?:\d{1,2}\s*[.)]|\d{1,2}\.\d{1,2})\s+")
 
 
 def match_heading(line: str) -> Optional[tuple[str, bool]]:
@@ -117,7 +143,7 @@ def match_heading(line: str) -> Optional[tuple[str, bool]]:
         return None
     m = _HEADING_NUM.match(stripped)
     numbered = bool(m)
-    title = m.group(2) if m else stripped
+    title = m.group(1) if m else stripped
     n = norm(re.sub(r"\([^)]*\)", "", title))
     if not n:
         return None
@@ -162,7 +188,7 @@ def split_sections_with_titles(raw_text: str) -> tuple[dict[str, str], dict[str,
             if numbered or key not in buckets:
                 current = key
                 buckets.setdefault(current, [])
-                titles.setdefault(current, re.sub(r"^\s*\d{1,2}\s*[.)]\s+", "", line.strip()))
+                titles.setdefault(current, _HEADING_NUM_PREFIX.sub("", line.strip()))
                 continue
         buckets.setdefault(current, []).append(line)
     sections: dict[str, str] = {}
@@ -248,6 +274,7 @@ IDENT_LABELS = {
     "escolaridade": "escolaridade", "profissao": "profissao", "profissao atual": "profissao",
     "profissao anterior": "profissao_anterior", "ocupacao": "ocupacao",
     "residencia": "residencia", "residencia atual": "residencia", "religiao": "religiao",
+    "residencias anteriores": "residencias_anteriores", "informante": "informante",
     "plano de saude": "plano_saude",
 }
 
@@ -370,6 +397,36 @@ def map_complexidade(raw: str) -> Optional[str]:
     return COMPLEXIDADE_MAP.get(n)
 
 
+LETRAMENTO_TO_EIXO_C = {
+    "baixo": "baixo_letramento_vulneravel",
+    "medio": "medio_letramento_media",
+    "alto": "alto_letramento_bom_acesso",
+}
+
+
+def parse_perfil_eixo_c(raw: str) -> dict[str, str]:
+    """'Nome, 78 anos, masculino | Letramento Baixo | Condição social Baixa | descrição' ->
+    {'letramento': 'baixo', 'condicao_social': 'baixa', 'descricao': 'descrição'} (só o que existir)."""
+    out: dict[str, str] = {}
+    descricao: list[str] = []
+    for i, seg in enumerate(s.strip() for s in raw.split("|")):
+        n = norm(seg)
+        m = re.match(r"letramento (baixo|medio|alto)\b", n)
+        c = re.match(r"condicao social (baixa|media|alta)\b", n)
+        if m:
+            out["letramento"] = m.group(1)
+            extra = seg.split(None, 2)
+            if len(extra) > 2:  # "Letramento Baixo (da mãe, informante)"
+                out["letramento_observacao"] = extra[2].strip("() ")
+        elif c:
+            out["condicao_social"] = c.group(1)
+        elif i > 0 and seg:
+            descricao.append(seg)
+    if descricao:
+        out["descricao"] = " | ".join(descricao)
+    return out
+
+
 def infer_eixo_c(eixo_c_raw: str, idade_meses: Optional[int], escolaridade: str) -> tuple[Optional[str], str]:
     """
     Retorna (valor, fonte). Pediátrico quando < 18 anos ou o texto do eixo C diz criança/lactente/adolescente;
@@ -381,6 +438,10 @@ def infer_eixo_c(eixo_c_raw: str, idade_meses: Optional[int], escolaridade: str)
             return "pediatrico", "idade"
     elif re.match(r"(crianca|lactente|adolescente|pediatric)", n):
         return "pediatrico", "eixo_c"
+    # Modelo E: "... | Letramento Baixo | Condição social Baixa | ..." — a declaração explícita vence as heurísticas.
+    explicit = re.search(r"\bletramento (baixo|medio|alto)\b", n)
+    if explicit:
+        return LETRAMENTO_TO_EIXO_C[explicit.group(1)], "eixo_c"
     for source_text, fonte in ((n, "eixo_c"), (norm(escolaridade), "escolaridade")):
         if not source_text:
             continue
@@ -397,6 +458,20 @@ _EIXO_LINE = re.compile(r"^\s*Eixo\s+([ABC])\b\s*(?:\([^)]*\))?\s*[:—–-]\s*(
 _LABEL_PREFIX = re.compile(r"^[^:]{3,60}:\s*")
 
 
+_COMPLEXIDADE_NO_EIXO_B = re.compile(r"Complexidade\s+(Baixa|M[ée]dia|Alta)\b", re.I)
+_NUANCE = re.compile(r"\(\s*(?:nuance|particularidade)[^:()]*:\s*(.+)\)\s*$", re.I)
+
+
+def _parse_eixo_b_detalhes(value: str, meta: dict[str, Any]) -> None:
+    """Modelo E: 'Colaborativo | Complexidade Alta (nuance: ...)' -> complexidade + nuance do perfil."""
+    m = _COMPLEXIDADE_NO_EIXO_B.search(value)
+    if m and "complexidade_bruta" not in meta:
+        meta["complexidade_bruta"] = m.group(1)
+    m = _NUANCE.search(value)
+    if m:
+        meta["eixo_b_nuance"] = m.group(1).strip()
+
+
 def parse_metadados(text: str) -> dict[str, Any]:
     meta: dict[str, Any] = {"texto": text}
     for line in text.splitlines():
@@ -408,6 +483,10 @@ def parse_metadados(text: str) -> dict[str, Any]:
             if label and re.search(r"categoria|perfil|comunica|sociodemogr", norm(label.group())):
                 value = value[label.end():].strip()
             meta[f"eixo_{m.group(1).lower()}_bruto"] = value
+            if m.group(1).upper() == "B":
+                _parse_eixo_b_detalhes(value, meta)
+            elif m.group(1).upper() == "C":
+                meta.update({f"eixo_c_{k}": v for k, v in parse_perfil_eixo_c(value).items()})
             continue
         m = re.match(r"^\s*Complexidade[^:\n]*:\s*(.+)$", line, re.I)
         if m:
@@ -426,7 +505,8 @@ def parse_metadados(text: str) -> dict[str, Any]:
         if m:
             meta["queixa_bruta"] = m.group(1).strip()
         m = re.match(r"^\s*(?:CASO|Caso)\s+\d+\s*[—–-]\s*(.+)$", line)
-        if m and "titulo" not in meta:
+        # "CASO 1 — PACIENTE VIRTUAL" é o carimbo do modelo, não o título ("Caso 1 – Apagões ao Levantar...").
+        if m and "titulo" not in meta and norm(m.group(1)) != "paciente virtual":
             meta["titulo"] = m.group(1).strip()
     return meta
 
@@ -468,6 +548,7 @@ def parse_diagnostico(sections: dict[str, str], meta: dict[str, Any]) -> dict[st
     """
     result: dict[str, Any] = {}
     principal = fonte = None
+    detalhe = ""
 
     dx_sec = sections.get("diagnostico", "")
     hip_sec = sections.get("hipoteses_diagnosticas", "")
@@ -482,12 +563,17 @@ def parse_diagnostico(sections: dict[str, str], meta: dict[str, Any]) -> dict[st
         m = re.search(r"\(([^)]{3,})\)", meta["eixo_a_bruto"])
         # "Cardiovascular (com comorbidade endócrina associada)" descreve o caso, não o diagnóstico.
         if m and not re.match(r"(com|sem|e|associad|comorbid)\b", norm(m.group(1))):
-            principal, fonte = m.group(1).strip(), "documento:eixo_a"
+            # Modelo E: "hipotensão postural em idoso polimedicado; com comorbidade endócrina associada"
+            # -> diagnóstico antes do ';' e o restante guardado como detalhe do caso.
+            principal, _, detalhe = (p.strip() for p in m.group(1).partition(";"))
+            fonte = "documento:eixo_a"
     if not principal:
         return result
 
     result["principal"] = principal
     result["fonte"] = fonte
+    if detalhe:
+        result["detalhe"] = detalhe
     src = "\n".join(t for t in (dx_sec, hip_sec) if t)
     for key, label in (("diferenciais", r"Diagn[óo]sticos? diferenciais?[^:\n]*"),
                        ("justificativa", r"Justificativa cl[íi]nica")):
@@ -503,7 +589,13 @@ def parse_diagnostico(sections: dict[str, str], meta: dict[str, Any]) -> dict[st
 
 def short_diagnosis(principal: str, limit: int = 200) -> str:
     """Versão curta para a coluna VARCHAR(200): corta justificativa após ' — '."""
-    value = re.split(r"\s[—–]\s", principal, maxsplit=1)[0].strip()
+    head, _, tail = principal.partition(" — ") if " — " in principal else principal.partition(" – ")
+    value = head.strip()
+    # "síndrome da taquicardia postural ortostática — POTS, de provável início pós-viral": mantém a sigla.
+    sigla = re.match(r"([A-Z]{2,6})\b", tail.strip())
+    if sigla:
+        value = f"{value} ({sigla.group(1)})"
+    value = re.split(r";|,\s+(?:em|com|sem|de provável)\b", value, maxsplit=1)[0].strip()
     value = value[:1].upper() + value[1:]
     return value if len(value) <= limit else value[: limit - 1].rstrip() + "…"
 
@@ -558,7 +650,10 @@ def quality_report(parsed: dict[str, Any]) -> dict[str, Any]:
     for key in REQUIRED_SECTIONS:
         if not sections.get(key):
             avisos.append(f"seção obrigatória ausente: {key}")
-    ausentes = [k for k in EXPECTED_SECTIONS if not sections.get(k)]
+    expected = EXPECTED_SECTIONS
+    if sections.get("contexto_aluno"):  # modelo E: 5.1 e a seção 6 fazem parte do padrão
+        expected += EXPECTED_SECTIONS_MODELO_E
+    ausentes = [k for k in expected if not sections.get(k)]
     if ausentes:
         avisos.append("seções esperadas ausentes: " + ", ".join(ausentes))
     ident = parsed["identificacao"]

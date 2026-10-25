@@ -1,12 +1,13 @@
 # backend/app/modules/patient/router.py
 """
-Módulo de geração de pacientes virtuais via LLM (GPT-4o).
+Módulo de cadastro de pacientes virtuais.
 
-POST /api/v1/patients/generate
-  - Recebe parâmetros clínicos
-  - Gera o caso completo via GPT-4o (JSON estruturado)
-  - Chuca texto → chunks → embeddings → PostgreSQL
-  - Retorna o paciente criado + nº de chunks ingeridos
+Os três caminhos de entrada produzem o mesmo `case_data` (modelo padronizado, ver `case_template.py`):
+  POST /api/v1/patients/generate    — gera o caso via GPT-4o
+  POST /api/v1/patients/manual      — cadastro manual (formulário)
+  POST /api/v1/patients/parse-docx  — extrai um DOCX no formato do formulário (não grava)
+
+Gravação: paciente → chunks por seção → embeddings → PostgreSQL.
 """
 from __future__ import annotations
 
@@ -18,14 +19,18 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from sqlalchemy import select, delete, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
 from app.db.models import KnowledgeChunk, VirtualPatient
+from app.modules.patient.case_template import (
+    AGENTE_SECOES, SISTEMAS, build_chunk_sections, build_identificacao,
+    normalize_agente, normalize_exame_fisico, normalize_interrogatorio,
+)
 from app.schemas.patient import (
     DocxParseResponse, DocxValidationIssue, PatientGenerateRequest, PatientGenerateResponse,
-    PatientManualRequest, VirtualPatientDetail, VirtualPatientResponse,
+    PatientManualRequest, VirtualPatientDetail,
 )
 
 log = logging.getLogger(__name__)
@@ -36,6 +41,7 @@ CHUNK_SIZE = 800
 CHUNK_OVERLAP = 100
 EMBEDDING_DIM = 1536
 EMBEDDING_MODEL = os.environ.get("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+SCHEMA_VERSION = 3
 
 EIXO_A_LABELS = {
     "cardiovascular": "cardiovascular",
@@ -69,6 +75,12 @@ COMPLEXIDADE_LABELS = {
     "alta": "alta (múltiplas comorbidades, apresentação atípica ou contexto social desfavorável)",
 }
 
+CONDICAO_SOCIAL_LABELS = {
+    "baixa": "baixa (renda instável, dependente do SUS, moradia/saneamento precários)",
+    "media": "média (renda estável, moradia adequada, rede pública ou plano básico)",
+    "alta": "alta (boa renda, plano de saúde privado, moradia própria em bairro nobre)",
+}
+
 FAIXA_ETARIA_RANGE = {
     "crianca": "entre 3 e 12 anos",
     "adolescente": "entre 13 e 17 anos",
@@ -76,116 +88,94 @@ FAIXA_ETARIA_RANGE = {
     "idoso": "entre 60 e 85 anos",
 }
 
-# Rótulos usados para expandir o interrogatório complementar (sistema a sistema)
-# e o exame físico estruturado em texto legível para chunking/embeddings.
-SISTEMA_LABELS = {
-    "cabeca": "Cabeça",
-    "olhos": "Olhos",
-    "ouvidos": "Ouvidos",
-    "nariz_boca_garganta": "Nariz, boca e garganta",
-    "pescoco": "Pescoço",
-    "aparelho_respiratorio_circulatorio": "Aparelho respiratório e circulatório",
-    "aparelho_digestivo": "Aparelho digestivo",
-    "aparelho_geniturinario": "Aparelho geniturinário",
-    "aparelho_locomotor": "Aparelho locomotor",
-    "pele": "Pele",
-    "sistema_nervoso": "Sistema nervoso",
-    "sintomas_gerais": "Sintomas gerais",
-}
+_SISTEMAS_JSON = ",\n".join(
+    f'    "{key}": "o que nega ou confirma quando perguntado sobre: {label.lower()}"' for key, label in SISTEMAS
+)
 
-SINAIS_VITAIS_LABELS = {
-    "pa": "PA", "fc": "FC", "fr": "FR", "tax": "Tax", "spo2": "SpO2",
-    "peso": "Peso", "altura": "Altura", "imc": "IMC",
-}
-
-EXAME_FISICO_LABELS = {
-    "geral": "Estado geral",
-    "cardiovascular": "Aparelho cardiovascular",
-    "respiratorio": "Aparelho respiratório",
-    "abdome": "Abdome",
-    "neurologico": "Exame neurológico",
-    "outros": "Outros achados",
-}
-
-GENERATION_SYSTEM_PROMPT = """\
+GENERATION_SYSTEM_PROMPT = f"""\
 Você é um especialista em semiologia médica e educação médica da UFPI.
 Sua tarefa é criar um caso clínico sintético, realista e educacionalmente rico
-para treinamento de anamnese por estudantes de medicina.
+para treinamento de anamnese por estudantes de medicina, seguindo o MODELO PADRONIZADO
+de casos do VipLab UFPI (identificação completa, interrogatório por sistema, medicações em uso,
+exame físico por aparelho e roteiro de comportamento do paciente virtual).
 
 O caso deve:
 - Ser clinicamente coerente e compatível com a prática médica brasileira
 - Usar linguagem coloquial para as falas do paciente (sem jargão técnico)
 - Incluir detalhes sociais, culturais e emocionais que tornem o personagem verossímil
 - Conter informações suficientes para uma anamnese completa de 20-30 min
-- NÃO revelar o diagnóstico diretamente — o paciente não sabe o diagnóstico
+- NÃO revelar o diagnóstico ao paciente nem ao aluno — o paciente não sabe o diagnóstico
+- Ser coerente com os Eixos B (comunicação), C (letramento/condição social) e a complexidade pedidos
 
 Retorne APENAS um objeto JSON válido com exatamente esta estrutura (sem markdown, sem explicações):
 
-{
+{{
   "nome": "Nome completo brasileiro",
   "idade": 45,
   "sexo": "M" ou "F",
-  "queixa_principal": "frase curta exatamente como o paciente diria, entre aspas simples no texto",
-  "diagnostico_principal": "diagnóstico correto para o professor",
-  "historia_doenca_atual": "narrativa detalhada em terceira pessoa (400-600 palavras). Inclua: início, duração, evolução, fatores de melhora/piora, sintomas associados, medicamentos em uso se relevante, comportamento do paciente frente à doença",
-  "identificacao": {
+  "queixa_principal": "frase curta exatamente como o paciente diria, entre aspas",
+  "diagnostico_principal": "diagnóstico correto para o professor (curto)",
+  "contexto_aluno": "1-2 parágrafos de cena: consultório, quem acompanha o paciente, como ele chega, clima da consulta (sem revelar diagnóstico)",
+  "identificacao": {{
     "cor": "parda/branca/preta/amarela/indígena",
     "estado_civil": "casado/solteiro/viúvo/divorciado",
+    "nacionalidade": "Brasileira",
+    "naturalidade": "cidade – UF",
     "profissao": "profissão atual realista",
+    "profissao_anterior": "profissão anterior ou 'Não se aplica'",
+    "ocupacao": "ocupação atual",
+    "escolaridade": "escolaridade coerente com o Eixo C",
     "religiao": "religião",
-    "residencia": "cidade e bairro piauiense ou nordestino",
-    "naturalidade": "cidade de origem"
-  },
-  "interrogatorio_complementar": {
-    "cabeca": "o que nega ou confirma sobre cefaleia, tonturas",
-    "olhos": "o que nega ou confirma",
-    "ouvidos": "o que nega ou confirma",
-    "nariz_boca_garganta": "o que nega ou confirma",
-    "pescoco": "o que nega ou confirma",
-    "aparelho_respiratorio_circulatorio": "o que nega ou confirma sobre tosse, dispneia, dor torácica, palpitações",
-    "aparelho_digestivo": "o que nega ou confirma sobre náuseas, vômitos, alteração do hábito intestinal, icterícia",
-    "aparelho_geniturinario": "o que nega ou confirma",
-    "aparelho_locomotor": "o que nega ou confirma",
-    "pele": "o que nega ou confirma",
-    "sistema_nervoso": "o que nega ou confirma sobre convulsões, paresias, alterações sensitivas",
-    "sintomas_gerais": "febre, emagrecimento, astenia, sudorese noturna"
-  },
-  "historia_fisiologica": "texto sobre gestações, partos, desenvolvimento, puberdade, menopausa se aplicável",
-  "historia_patologica": {
+    "residencia": "bairro/cidade piauiense ou nordestina, tempo de moradia, com quem mora",
+    "residencias_anteriores": "ou 'Não se aplica'",
+    "informante": "apenas se o paciente não for o informante (criança, idoso confuso): quem é e como participa; senão omita"
+  }},
+  "historia_doenca_atual": "narrativa detalhada em terceira pessoa (400-600 palavras). Inclua: início, duração, evolução, fatores de melhora/piora, sintomas associados, medicamentos em uso se relevante, comportamento do paciente frente à doença",
+  "interrogatorio_complementar": {{
+{_SISTEMAS_JSON}
+  }},
+  "historia_fisiologica": "antecedentes fisiológicos: nascimento, desenvolvimento, puberdade, gestações/partos, menopausa se aplicável",
+  "historia_patologica": {{
     "doencas_previas": ["lista de doenças pregressas"],
     "cirurgias": ["lista ou 'nega cirurgias'"],
     "internacoes": ["lista ou 'nega internações'"],
-    "medicamentos_em_uso": ["medicamento dose frequência"],
+    "medicamentos_em_uso": ["Nome dose — posologia (finalidade). Ex: Losartana 50 mg — 1 comprimido/dia (tratamento da hipertensão arterial)"],
+    "medicacoes_observacao": "como o paciente realmente toma/entende os remédios (adesão, automedicação, o que só revela se perguntado)",
     "alergias": ["lista ou 'nega alergias'"],
-    "texto_livre": "detalhes adicionais, vacinas, doenças da infância"
-  },
+    "texto_livre": "antecedentes patológicos em prosa: vacinas, doenças da infância, comorbidades, internações"
+  }},
   "historia_familiar": "saúde detalhada dos pais (causa e idade do óbito se falecidos), irmãos, filhos — doenças prevalentes",
-  "historia_social": {
+  "historia_social": {{
     "tabagismo": "ex-tabagista X maços-ano / tabagista X cigarros/dia há Y anos / nega tabagismo",
     "etilismo": "descrição quantificada do uso de álcool",
-    "texto_livre": "escolaridade, condições de moradia, saneamento, renda, com quem mora, atividade física, alimentação, acesso a serviços de saúde"
-  },
-  "exame_fisico": {
-    "sinais_vitais": {
-      "pa": "120/80 mmHg",
-      "fc": "78 bpm",
-      "fr": "16 irpm",
-      "tax": "36,5°C",
-      "spo2": "98% em ar ambiente",
-      "peso": "70 kg",
-      "altura": "1,70 m",
-      "imc": "24,2 kg/m²"
-    },
-    "geral": "estado geral, hidratação, coloração, orientação",
-    "cardiovascular": "ritmo, bulhas, sopros, pulsos, edemas",
-    "respiratorio": "expansibilidade, murmúrio vesicular, ruídos adventícios",
-    "abdome": "inspeção, palpação, percussão, ausculta",
-    "neurologico": "consciência, orientação, força, sensibilidade, reflexos se relevante",
-    "outros": "achados específicos do sistema acometido pela queixa principal"
-  },
+    "texto_livre": "hábitos de vida: moradia, saneamento, renda, com quem mora, alimentação, atividade física, sono, acesso a serviços de saúde"
+  }},
+  "exame_fisico": {{
+    "sinais_vitais": {{
+      "pa": "120 x 80 mmHg", "fc": "78 bpm", "fr": "16 irpm", "tax": "36,5 °C (axilar)",
+      "spo2": "98% em ar ambiente", "peso": "70 kg", "altura": "1,70 m", "imc": "24,2 kg/m²",
+      "observacao": "opcional: ex. PA ortostática, achado relevante durante a aferição"
+    }},
+    "exame_fisico_geral": "estado geral, hidratação, coloração, orientação",
+    "aparelho_cardiovascular": "ritmo, bulhas, sopros, pulsos, edemas",
+    "aparelho_respiratorio": "expansibilidade, murmúrio vesicular, ruídos adventícios",
+    "aparelho_abdominal": "inspeção, palpação, percussão, ausculta",
+    "aparelho_osteoarticular": "articulações, marcha, força",
+    "exame_neurologico": "apenas se relevante para a queixa"
+  }},
   "hipoteses_diagnosticas": ["diagnóstico principal", "primeiro diferencial", "segundo diferencial se aplicável"],
-  "caracteristicas_agente": "3 parágrafos detalhados: (1) Como o paciente se comporta ao entrar, postura, tom de voz, nível de ansiedade, relação com o médico. (2) Como responde às perguntas — o que relata espontaneamente, o que omite, o que exagera, termos leigos que usa para descrever sintomas, como reage a perguntas técnicas. (3) Informações que o estudante precisa explorar ativamente pois o paciente não oferece espontaneamente. Deve ser coerente com o Eixo B (perfil comportamental) e o Eixo C (letramento). Escrito em terceira pessoa."
-}
+  "agente_ia": {{
+    "perfil": "2-3 parágrafos em terceira pessoa: como o paciente se comporta, como responde, o que não relaciona espontaneamente; coerente com os Eixos B e C",
+    "voz_postura_discurso": ["itens curtos"],
+    "vocabulario": ["termos leigos que usa e termos técnicos que não entende"],
+    "reacoes_emocionais": ["itens curtos"],
+    "omite_minimiza_distorce": ["o que omite, minimiza ou distorce, e o que dispara a revelação"],
+    "temas_sensiveis": ["itens curtos"],
+    "desafios_comunicacao": ["o que o estudante precisa exercitar nesta consulta"],
+    "acompanhante": ["apenas se houver acompanhante; senão lista vazia"],
+    "dados_so_por_interrogacao": ["informações que só aparecem se o estudante perguntar ativamente"]
+  }}
+}}
 """
 
 
@@ -196,6 +186,8 @@ def build_user_prompt(req: PatientGenerateRequest) -> str:
         f"Complexidade: {COMPLEXIDADE_LABELS.get(req.complexidade, req.complexidade)}",
         f"Perfil socioeconômico (Eixo C): {EIXO_C_LABELS.get(req.eixo_c, req.eixo_c)}",
     ]
+    if req.condicao_social:
+        lines.append(f"Condição social: {CONDICAO_SOCIAL_LABELS.get(req.condicao_social, req.condicao_social)}")
     if req.sexo:
         lines.append(f"Sexo: {'masculino' if req.sexo == 'M' else 'feminino'}")
     if req.faixa_etaria:
@@ -212,13 +204,18 @@ def build_user_prompt(req: PatientGenerateRequest) -> str:
         "spo2, peso, altura, imc) além dos achados por aparelho."
     )
     lines.append(
-        "O campo caracteristicas_agente deve ter 3 parágrafos distintos conforme "
-        "instruído, totalizando 300-500 palavras."
+        "O campo agente_ia deve seguir a estrutura indicada (perfil + subseções em lista), "
+        "totalizando 300-500 palavras, sem repetir informações entre as subseções."
     )
     lines.append(
         "A queixa_principal deve ser a frase exata como o paciente expressaria em "
         "linguagem coloquial."
     )
+    if req.eixo_c == "pediatrico":
+        lines.append(
+            "Paciente pediátrico: preencha identificacao.informante (responsável) e escreva a HDA e o "
+            "agente_ia considerando criança e responsável como dois interlocutores."
+        )
     return "\n".join(lines)
 
 
@@ -301,170 +298,60 @@ def next_case_number_sync(existing_numbers: list[int]) -> int:
     return n
 
 
-def format_interrogatorio_complementar(raw: Any) -> tuple[dict[str, str], str]:
-    """Normaliza o interrogatório complementar retornado pelo LLM.
-
-    Formato novo (esperado): dict com uma chave por sistema.
-    Formato antigo (fallback): string única — mantida como compatibilidade.
-
-    Retorna (estrutura para case_data, texto concatenado para chunking).
-    """
-    if isinstance(raw, dict):
-        estruturado = {k: str(v) for k, v in raw.items() if v}
-        texto = "\n\n".join(
-            f"{SISTEMA_LABELS.get(k, k.replace('_', ' ').capitalize())}: {v}"
-            for k, v in estruturado.items()
-        )
-        return estruturado, texto
-    texto = str(raw).strip() if raw else ""
-    return ({"texto": texto} if texto else {}), texto
+def _lista(value: Any) -> list[str]:
+    return [str(v).strip() for v in value if str(v).strip()] if isinstance(value, list) else []
 
 
-def format_exame_fisico(raw: Any) -> tuple[dict[str, Any], str]:
-    """Normaliza o exame físico retornado pelo LLM.
-
-    Formato novo (esperado): dict com `sinais_vitais` (dict) + achados por aparelho.
-    Formato antigo (fallback): string única — mantida como compatibilidade.
-
-    Retorna (estrutura para case_data, texto concatenado para chunking).
-    """
-    if isinstance(raw, dict):
-        sinais_vitais = raw.get("sinais_vitais")
-        sinais_vitais = sinais_vitais if isinstance(sinais_vitais, dict) else {}
-        partes = []
-        sv_texto = ", ".join(
-            f"{SINAIS_VITAIS_LABELS.get(k, k.upper())}: {v}"
-            for k, v in sinais_vitais.items() if v
-        )
-        if sv_texto:
-            partes.append(f"Sinais vitais: {sv_texto}")
-        for k, v in raw.items():
-            if k == "sinais_vitais" or not v:
-                continue
-            partes.append(f"{EXAME_FISICO_LABELS.get(k, k.replace('_', ' ').capitalize())}: {v}")
-        texto = "\n\n".join(partes)
-        estruturado = dict(raw)
-        estruturado["texto_livre"] = texto
-        return estruturado, texto
-    texto = str(raw).strip() if raw else ""
-    return {"texto_livre": texto}, texto
-
-
-@router.post(
-    "/generate",
-    response_model=PatientGenerateResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Gera um novo paciente virtual via GPT-4o e ingere no banco",
-)
-async def generate_patient(
-    req: PatientGenerateRequest,
-    db: AsyncSession = Depends(get_db),
-):
-    # 1. Gerar caso via LLM
-    log.info(f"Gerando paciente: eixo_a={req.eixo_a} eixo_b={req.eixo_b} complexidade={req.complexidade}")
-    user_prompt = build_user_prompt(req)
-    case_json = await call_openai_generate(user_prompt)
-
-    # 2. Extrair campos obrigatórios com fallbacks seguros
-    nome = case_json.get("nome", "Paciente Gerado")
-    idade = int(case_json.get("idade", 40))
-    sexo_raw = case_json.get("sexo", req.sexo or "M")
-    sexo = "M" if str(sexo_raw).upper().startswith("M") else "F"
-    queixa = case_json.get("queixa_principal", "")
-    diagnostico = case_json.get("diagnostico_principal", "Não especificado")
-
-    ident_raw = case_json.get("identificacao", {})
-    historia_pat_raw = case_json.get("historia_patologica", {})
-    historia_soc_raw = case_json.get("historia_social", {})
-
-    interrogatorio_estruturado, interrogatorio_texto = format_interrogatorio_complementar(
-        case_json.get("interrogatorio_complementar", {})
-    )
-    exame_estruturado, exame_texto = format_exame_fisico(case_json.get("exame_fisico", {}))
-    caracteristicas_agente = case_json.get("caracteristicas_agente", "")
+def _assemble_case_data(
+    *,
+    nome: str, idade: int, sexo: str, queixa: str, diagnostico: str,
+    ident_extras: dict[str, Any], contexto_aluno: str, hda: str,
+    interrogatorio: Any, historia_fisiologica: str, patologica: dict[str, Any],
+    historia_familiar: str, social: dict[str, Any], exame_fisico: Any,
+    agente: Any, hipoteses: list[str], classificacao: dict[str, Any], gerado_por_llm: bool,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Monta o case_data no modelo padronizado e o texto por seção para chunking (usado por manual e LLM)."""
+    interrogatorio_est, _ = normalize_interrogatorio(interrogatorio)
+    exame_est, _ = normalize_exame_fisico(exame_fisico)
+    agente_est, agente_texto = normalize_agente(agente)
 
     case_data = {
-        "identificacao": {
-            "nome": nome, "idade": idade, "sexo": sexo,
-            "cor": ident_raw.get("cor"),
-            "estado_civil": ident_raw.get("estado_civil"),
-            "profissao": ident_raw.get("profissao"),
-            "religiao": ident_raw.get("religiao"),
-            "residencia": ident_raw.get("residencia"),
-            "naturalidade": ident_raw.get("naturalidade"),
-        },
+        "schema_version": SCHEMA_VERSION,
+        "contexto_aluno": contexto_aluno,
+        "identificacao": build_identificacao(nome, idade, sexo, ident_extras),
         "queixa_principal_texto": queixa,
-        "historia_doenca_atual": case_json.get("historia_doenca_atual", ""),
-        "interrogatorio_complementar": interrogatorio_estruturado,
-        "historia_fisiologica": {"texto_livre": case_json.get("historia_fisiologica", "")},
-        "historia_patologica": {
-            "doencas_previas": historia_pat_raw.get("doencas_previas", []) if isinstance(historia_pat_raw, dict) else [],
-            "cirurgias": historia_pat_raw.get("cirurgias", []) if isinstance(historia_pat_raw, dict) else [],
-            "internacoes": historia_pat_raw.get("internacoes", []) if isinstance(historia_pat_raw, dict) else [],
-            "medicamentos_em_uso": historia_pat_raw.get("medicamentos_em_uso", []) if isinstance(historia_pat_raw, dict) else [],
-            "alergias": historia_pat_raw.get("alergias", []) if isinstance(historia_pat_raw, dict) else [],
-            "texto_livre": historia_pat_raw.get("texto_livre", "") if isinstance(historia_pat_raw, dict) else str(historia_pat_raw),
-        },
-        "historia_familiar": {"texto_livre": case_json.get("historia_familiar", "")},
-        "historia_social": {
-            "tabagismo": historia_soc_raw.get("tabagismo") if isinstance(historia_soc_raw, dict) else None,
-            "etilismo": historia_soc_raw.get("etilismo") if isinstance(historia_soc_raw, dict) else None,
-            "texto_livre": historia_soc_raw.get("texto_livre", "") if isinstance(historia_soc_raw, dict) else str(historia_soc_raw),
-        },
-        "exame_fisico": exame_estruturado,
+        "historia_doenca_atual": hda,
+        "interrogatorio_complementar": interrogatorio_est,
+        "historia_fisiologica": {"texto_livre": historia_fisiologica},
+        "historia_patologica": patologica,
+        "historia_familiar": {"texto_livre": historia_familiar},
+        "historia_social": social,
+        "exame_fisico": exame_est,
+        "diagnostico": {"principal": diagnostico, "fonte": "llm" if gerado_por_llm else "manual"},
         "diagnostico_completo": diagnostico,
-        "hipoteses_diagnosticas": case_json.get("hipoteses_diagnosticas", [diagnostico]),
-        "caracteristicas_agente": caracteristicas_agente,
+        "hipoteses_diagnosticas": hipoteses or [diagnostico],
+        "caracteristicas_agente": agente_texto,
+        "agente_ia": agente_est,
+        "classificacao": {k: v for k, v in classificacao.items() if v not in (None, "")},
         "raw_sections": {},
-        "gerado_por_llm": True,
+        "gerado_por_llm": gerado_por_llm,
     }
+    return case_data, build_chunk_sections(case_data, case_data["hipoteses_diagnosticas"])
 
-    # 3. Determinar próximo case_number
+
+async def _persist_patient(
+    db: AsyncSession, *, fields: dict[str, Any], case_data: dict[str, Any],
+    sections: dict[str, str], generated_by: str,
+) -> PatientGenerateResponse:
+    """Insere paciente + chunks com embeddings e confirma a transação."""
     result = await db.execute(select(VirtualPatient.case_number))
-    existing_numbers = [row[0] for row in result.fetchall()]
-    case_num = next_case_number_sync(existing_numbers)
+    case_num = next_case_number_sync([row[0] for row in result.fetchall()])
 
-    # 4. Inserir paciente via ORM
-    patient = VirtualPatient(
-        case_number=case_num,
-        eixo_a=req.eixo_a,
-        eixo_b=req.eixo_b,
-        eixo_c=req.eixo_c,
-        complexidade=req.complexidade,
-        nome=nome,
-        idade=idade,
-        sexo=sexo,
-        queixa_principal=queixa,
-        diagnostico_principal=diagnostico,
-        case_data=case_data,
-    )
+    patient = VirtualPatient(case_number=case_num, case_data=case_data, **fields)
     db.add(patient)
     await db.flush()
     patient_id = patient.id
-    log.info(f"  Paciente #{case_num} ({nome}) inserido — id={patient_id}")
-
-    # 5. Construir chunks das seções textuais
-    sections = {
-        "identificacao": f"Nome: {nome}. Idade: {idade} anos. Sexo: {'Masculino' if sexo == 'M' else 'Feminino'}.",
-        "queixa_principal": queixa,
-        "historia_doenca_atual": case_json.get("historia_doenca_atual", ""),
-        "interrogatorio_complementar": interrogatorio_texto,
-        "historia_fisiologica": case_json.get("historia_fisiologica", ""),
-        "historia_patologica": (
-            historia_pat_raw.get("texto_livre", "") if isinstance(historia_pat_raw, dict) else str(historia_pat_raw)
-        ) + "\n" + ", ".join(
-            historia_pat_raw.get("medicamentos_em_uso", []) if isinstance(historia_pat_raw, dict) else []
-        ),
-        "historia_familiar": case_json.get("historia_familiar", ""),
-        "historia_social": (
-            historia_soc_raw.get("texto_livre", "") if isinstance(historia_soc_raw, dict) else str(historia_soc_raw)
-        ),
-        "exame_fisico": exame_texto,
-        "caracteristicas_agente": caracteristicas_agente,
-        "hipoteses_diagnosticas": " | ".join(
-            case_json.get("hipoteses_diagnosticas", [])
-        ),
-    }
+    log.info(f"  Paciente #{case_num} ({fields['nome']}) inserido — id={patient_id}")
 
     all_chunks: list[tuple[str, str, int]] = []
     for section_name, section_text in sections.items():
@@ -472,115 +359,7 @@ async def generate_patient(
             continue
         for i, chunk in enumerate(chunk_text(section_text)):
             all_chunks.append((section_name, chunk, i))
-
     log.info(f"  {len(all_chunks)} chunks gerados")
-
-    # 6. Embeddings e inserção em lotes
-    batch_size = 100
-    for batch_start in range(0, len(all_chunks), batch_size):
-        batch = all_chunks[batch_start: batch_start + batch_size]
-        embeddings = await get_embeddings([c[1] for c in batch])
-        for (section_name, content, chunk_index), embedding in zip(batch, embeddings):
-            db.add(KnowledgeChunk(
-                patient_id=patient_id,
-                section=section_name,
-                content=content,
-                embedding=embedding,
-                chunk_index=chunk_index,
-                token_count=len(content.split()),
-            ))
-
-    await db.commit()
-    log.info(f"  Ingestão completa: {len(all_chunks)} chunks para paciente #{case_num}")
-
-    return PatientGenerateResponse(
-        patient=VirtualPatientDetail.model_validate(patient),
-        chunks_ingested=len(all_chunks),
-        generated_by="gpt-4o",
-    )
-
-
-@router.post(
-    "/manual",
-    response_model=PatientGenerateResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Cadastra um paciente a partir de formulário manual (sem LLM)",
-)
-async def create_patient_manual(
-    req: PatientManualRequest,
-    db: AsyncSession = Depends(get_db),
-):
-    case_data = {
-        "identificacao": {
-            "nome": req.nome, "idade": req.idade, "sexo": req.sexo,
-            "cor": req.cor, "estado_civil": req.estado_civil,
-            "profissao": req.profissao, "religiao": req.religiao,
-            "residencia": req.residencia, "naturalidade": req.naturalidade,
-        },
-        "queixa_principal_texto": req.queixa_principal,
-        "historia_doenca_atual": req.historia_doenca_atual,
-        "interrogatorio_complementar": {"texto": req.interrogatorio_complementar} if req.interrogatorio_complementar else {},
-        "historia_fisiologica": {"texto_livre": req.historia_fisiologica or ""},
-        "historia_patologica": {
-            "doencas_previas": req.doencas_previas,
-            "cirurgias": req.cirurgias,
-            "internacoes": req.internacoes,
-            "medicamentos_em_uso": req.medicamentos_em_uso,
-            "alergias": req.alergias,
-            "texto_livre": req.historia_patologica_texto or "",
-        },
-        "historia_familiar": {"texto_livre": req.historia_familiar or ""},
-        "historia_social": {
-            "tabagismo": req.tabagismo,
-            "etilismo": req.etilismo,
-            "texto_livre": req.historia_social_texto or "",
-        },
-        "exame_fisico": {"texto_livre": req.exame_fisico or ""},
-        "diagnostico_completo": req.diagnostico_principal,
-        "hipoteses_diagnosticas": req.hipoteses_diagnosticas or [req.diagnostico_principal],
-        "caracteristicas_agente": req.caracteristicas_agente or "",
-        "raw_sections": {},
-        "gerado_por_llm": False,
-    }
-
-    result = await db.execute(select(VirtualPatient.case_number))
-    case_num = next_case_number_sync([row[0] for row in result.fetchall()])
-
-    patient = VirtualPatient(
-        case_number=case_num,
-        eixo_a=req.eixo_a,
-        eixo_b=req.eixo_b,
-        eixo_c=req.eixo_c,
-        complexidade=req.complexidade,
-        nome=req.nome,
-        idade=req.idade,
-        sexo=req.sexo,
-        queixa_principal=req.queixa_principal,
-        diagnostico_principal=req.diagnostico_principal,
-        case_data=case_data,
-    )
-    db.add(patient)
-    await db.flush()
-    patient_id = patient.id
-    log.info(f"  Paciente manual #{case_num} ({req.nome}) inserido — id={patient_id}")
-
-    sections = {
-        "identificacao": f"Nome: {req.nome}. Idade: {req.idade} anos. Sexo: {'Masculino' if req.sexo == 'M' else 'Feminino'}.",
-        "queixa_principal": req.queixa_principal,
-        "historia_doenca_atual": req.historia_doenca_atual,
-        "interrogatorio_complementar": req.interrogatorio_complementar or "",
-        "historia_fisiologica": req.historia_fisiologica or "",
-        "historia_patologica": (req.historia_patologica_texto or "") + "\n" + ", ".join(req.medicamentos_em_uso),
-        "historia_familiar": req.historia_familiar or "",
-        "historia_social": req.historia_social_texto or "",
-        "exame_fisico": req.exame_fisico or "",
-        "caracteristicas_agente": req.caracteristicas_agente or "",
-        "hipoteses_diagnosticas": " | ".join(req.hipoteses_diagnosticas),
-    }
-    all_chunks: list[tuple[str, str, int]] = []
-    for section_name, section_text in sections.items():
-        for i, chunk in enumerate(chunk_text(section_text)):
-            all_chunks.append((section_name, chunk, i))
 
     batch_size = 100
     for batch_start in range(0, len(all_chunks), batch_size):
@@ -597,10 +376,139 @@ async def create_patient_manual(
             ))
 
     await db.commit()
+    log.info(f"  Ingestão completa: {len(all_chunks)} chunks para paciente #{case_num}")
     return PatientGenerateResponse(
         patient=VirtualPatientDetail.model_validate(patient),
         chunks_ingested=len(all_chunks),
-        generated_by="manual",
+        generated_by=generated_by,
+    )
+
+
+@router.post(
+    "/generate",
+    response_model=PatientGenerateResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Gera um novo paciente virtual via GPT-4o e ingere no banco",
+)
+async def generate_patient(
+    req: PatientGenerateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    log.info(f"Gerando paciente: eixo_a={req.eixo_a} eixo_b={req.eixo_b} complexidade={req.complexidade}")
+    case_json = await call_openai_generate(build_user_prompt(req))
+
+    nome = case_json.get("nome", "Paciente Gerado")
+    idade = int(case_json.get("idade", 40))
+    sexo = "M" if str(case_json.get("sexo", req.sexo or "M")).upper().startswith("M") else "F"
+    queixa = case_json.get("queixa_principal", "")
+    diagnostico = case_json.get("diagnostico_principal", "Não especificado")
+
+    ident_raw = case_json.get("identificacao")
+    ident_raw = ident_raw if isinstance(ident_raw, dict) else {}
+    pat_raw = case_json.get("historia_patologica")
+    pat_raw = pat_raw if isinstance(pat_raw, dict) else {"texto_livre": str(pat_raw or "")}
+    soc_raw = case_json.get("historia_social")
+    soc_raw = soc_raw if isinstance(soc_raw, dict) else {"texto_livre": str(soc_raw or "")}
+
+    # `agente_ia` (estruturado, modelo atual) tem prioridade; `caracteristicas_agente` é o formato antigo.
+    agente = case_json.get("agente_ia") or case_json.get("caracteristicas_agente", "")
+
+    case_data, sections = _assemble_case_data(
+        nome=nome, idade=idade, sexo=sexo, queixa=queixa, diagnostico=diagnostico,
+        ident_extras=ident_raw,
+        contexto_aluno=str(case_json.get("contexto_aluno") or "").strip(),
+        hda=case_json.get("historia_doenca_atual", ""),
+        interrogatorio=case_json.get("interrogatorio_complementar", {}),
+        historia_fisiologica=str(case_json.get("historia_fisiologica") or ""),
+        patologica={
+            "doencas_previas": _lista(pat_raw.get("doencas_previas")),
+            "cirurgias": _lista(pat_raw.get("cirurgias")),
+            "internacoes": _lista(pat_raw.get("internacoes")),
+            "medicamentos_em_uso": _lista(pat_raw.get("medicamentos_em_uso")),
+            "alergias": _lista(pat_raw.get("alergias")),
+            "texto_livre": str(pat_raw.get("texto_livre") or ""),
+            "medicacoes_observacao": str(pat_raw.get("medicacoes_observacao") or "") or None,
+        },
+        historia_familiar=str(case_json.get("historia_familiar") or ""),
+        social={
+            "tabagismo": soc_raw.get("tabagismo"),
+            "etilismo": soc_raw.get("etilismo"),
+            "texto_livre": str(soc_raw.get("texto_livre") or ""),
+        },
+        exame_fisico=case_json.get("exame_fisico", {}),
+        agente=agente,
+        hipoteses=_lista(case_json.get("hipoteses_diagnosticas")),
+        classificacao={
+            "eixo_a": req.eixo_a, "eixo_b": req.eixo_b, "eixo_c": req.eixo_c,
+            "complexidade": req.complexidade, "condicao_social": req.condicao_social,
+        },
+        gerado_por_llm=True,
+    )
+    return await _persist_patient(
+        db,
+        fields=dict(
+            eixo_a=req.eixo_a, eixo_b=req.eixo_b, eixo_c=req.eixo_c, complexidade=req.complexidade,
+            nome=nome, idade=idade, sexo=sexo, queixa_principal=queixa, diagnostico_principal=diagnostico,
+        ),
+        case_data=case_data, sections=sections, generated_by="gpt-4o",
+    )
+
+
+@router.post(
+    "/manual",
+    response_model=PatientGenerateResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Cadastra um paciente a partir de formulário manual (sem LLM)",
+)
+async def create_patient_manual(
+    req: PatientManualRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    agente = req.agente_ia if req.agente_ia else (req.caracteristicas_agente or "")
+    case_data, sections = _assemble_case_data(
+        nome=req.nome, idade=req.idade, sexo=req.sexo, queixa=req.queixa_principal,
+        diagnostico=req.diagnostico_principal,
+        ident_extras=req.model_dump(include={
+            "cor", "estado_civil", "profissao", "religiao", "residencia", "naturalidade", "nacionalidade",
+            "profissao_anterior", "ocupacao", "escolaridade", "residencias_anteriores", "informante",
+        }),
+        contexto_aluno=(req.contexto_aluno or "").strip(),
+        hda=req.historia_doenca_atual,
+        interrogatorio=req.interrogatorio_complementar or {},
+        historia_fisiologica=req.historia_fisiologica or "",
+        patologica={
+            "doencas_previas": req.doencas_previas,
+            "cirurgias": req.cirurgias,
+            "internacoes": req.internacoes,
+            "medicamentos_em_uso": req.medicamentos_em_uso,
+            "alergias": req.alergias,
+            "texto_livre": req.historia_patologica_texto or "",
+            "medicacoes_observacao": req.medicacoes_observacao or None,
+        },
+        historia_familiar=req.historia_familiar or "",
+        social={
+            "tabagismo": req.tabagismo,
+            "etilismo": req.etilismo,
+            "texto_livre": req.historia_social_texto or "",
+        },
+        exame_fisico=req.exame_fisico or "",
+        agente=agente,
+        hipoteses=req.hipoteses_diagnosticas,
+        classificacao={
+            "eixo_a": req.eixo_a, "eixo_b": req.eixo_b, "eixo_c": req.eixo_c,
+            "complexidade": req.complexidade, "letramento": req.letramento,
+            "condicao_social": req.condicao_social, "nuance_eixo_b": req.nuance_eixo_b,
+        },
+        gerado_por_llm=False,
+    )
+    return await _persist_patient(
+        db,
+        fields=dict(
+            eixo_a=req.eixo_a, eixo_b=req.eixo_b, eixo_c=req.eixo_c, complexidade=req.complexidade,
+            nome=req.nome, idade=req.idade, sexo=req.sexo, queixa_principal=req.queixa_principal,
+            diagnostico_principal=req.diagnostico_principal,
+        ),
+        case_data=case_data, sections=sections, generated_by="manual",
     )
 
 
@@ -615,13 +523,26 @@ _REQUIRED_DOCX_FIELDS = {
 }
 
 _OPTIONAL_DOCX_FIELDS = {
+    "contexto_aluno": "Contexto para o aluno",
     "exame_fisico": "Exame físico",
     "interrogatorio_complementar": "Interrogatório complementar",
-    "historia_fisiologica": "História fisiológica",
-    "historia_familiar": "História familiar",
-    "historia_social_texto": "História social",
-    "caracteristicas_agente": "Características do agente",
+    "historia_fisiologica": "Antecedentes fisiológicos",
+    "historia_patologica_texto": "Antecedentes patológicos",
+    "historia_familiar": "Antecedentes familiares",
+    "historia_social_texto": "Hábitos de vida",
+    "agente_ia": "Características do agente de IA",
 }
+
+# Subseções do agente que o modelo padronizado sempre traz ("acompanhante" só quando há acompanhante).
+_AGENTE_ESPERADAS = [k for k, _ in AGENTE_SECOES if k != "acompanhante"]
+
+
+def _has_content(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(_has_content(v) for v in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_has_content(v) for v in value)
+    return bool(value) and len(str(value).strip()) >= 5
 
 
 def extract_manual_fields(raw_text: str) -> dict[str, Any]:
@@ -630,21 +551,37 @@ def extract_manual_fields(raw_text: str) -> dict[str, Any]:
         infer_eixo_c, labeled_blocks, map_complexidade, map_eixo_a, map_eixo_b,
         parse_case, short_diagnosis,
     )
-    from scripts.ingest.case_structure import structure_patologica, structure_social
+    from scripts.ingest.case_structure import (
+        structure_agente, structure_exame_fisico, structure_interrogatorio,
+        structure_medicacoes, structure_patologica, structure_social,
+    )
 
     parsed = parse_case(raw_text)
     sec, meta, ident, dx = parsed["sections"], parsed["metadados"], parsed["identificacao"], parsed["diagnostico"]
     patologica = structure_patologica(sec.get("historia_patologica", ""), labeled_blocks(sec.get("historia_patologica", "")))
     social = structure_social(sec.get("historia_social", ""), labeled_blocks(sec.get("historia_social", "")))
+    meds = structure_medicacoes(sec["medicacoes_em_uso"]) if sec.get("medicacoes_em_uso") else {}
     eixo_c, _ = infer_eixo_c(meta.get("eixo_c_bruto", ""), ident.get("idade_meses"), ident.get("escolaridade", ""))
     queixa = sec.get("queixa_principal", "") or meta.get("queixa_bruta", "")
     queixa = queixa.split("\n\n")[0].strip() if queixa else ""
+
+    # Interrogatório/exame: dict por sistema/aparelho; sem rótulos reconhecíveis, o texto original.
+    interrogatorio = structure_interrogatorio(sec.get("interrogatorio_complementar", ""), parsed["interrogatorio"])
+    if set(interrogatorio) <= {"texto"}:
+        interrogatorio = interrogatorio.get("texto", "")
+    exame = {k: v for k, v in structure_exame_fisico(sec.get("exame_fisico", ""), parsed["exame_fisico_blocos"]).items()
+             if k != "texto_livre"}
+    if not exame or set(exame) <= {"introducao"}:
+        exame = sec.get("exame_fisico", "")
 
     return {
         "eixo_a": map_eixo_a(meta.get("eixo_a_bruto", "")) or "",
         "eixo_b": map_eixo_b(meta.get("eixo_b_bruto", "")) or "colaborativo",
         "eixo_c": eixo_c or "baixo_letramento_vulneravel",
         "complexidade": map_complexidade(meta.get("complexidade_bruta", "")) or "media",
+        "letramento": meta.get("eixo_c_letramento", ""),
+        "condicao_social": meta.get("eixo_c_condicao_social", ""),
+        "nuance_eixo_b": meta.get("eixo_b_nuance", ""),
         "nome": ident.get("nome", ""),
         "idade": ident.get("idade"),
         "sexo": ident.get("sexo", ""),
@@ -654,23 +591,31 @@ def extract_manual_fields(raw_text: str) -> dict[str, Any]:
         "religiao": ident.get("religiao", ""),
         "residencia": ident.get("residencia", ""),
         "naturalidade": ident.get("naturalidade", ""),
+        "nacionalidade": ident.get("nacionalidade", ""),
+        "profissao_anterior": ident.get("profissao_anterior", ""),
+        "ocupacao": ident.get("ocupacao", ""),
+        "escolaridade": ident.get("escolaridade", ""),
+        "residencias_anteriores": ident.get("residencias_anteriores", ""),
+        "informante": ident.get("informante", ""),
+        "contexto_aluno": sec.get("contexto_aluno", ""),
         "queixa_principal": queixa,
         "diagnostico_principal": short_diagnosis(dx["principal"]) if dx and dx.get("principal") else "",
         "historia_doenca_atual": sec.get("historia_doenca_atual", ""),
-        "interrogatorio_complementar": sec.get("interrogatorio_complementar", ""),
+        "interrogatorio_complementar": interrogatorio,
         "historia_fisiologica": sec.get("historia_fisiologica", ""),
         "historia_familiar": sec.get("historia_familiar", ""),
         "historia_social_texto": sec.get("historia_social", ""),
         "tabagismo": social.get("tabagismo", ""),
         "etilismo": social.get("etilismo", ""),
-        "exame_fisico": sec.get("exame_fisico", ""),
-        "caracteristicas_agente": sec.get("caracteristicas_agente", ""),
+        "exame_fisico": exame,
+        "agente_ia": structure_agente(sec.get("caracteristicas_agente", "")),
         "hipoteses_diagnosticas": list(dx.get("hipoteses") or []) if dx else [],
         "historia_patologica_texto": patologica.get("texto_livre", ""),
         "doencas_previas": patologica.get("doencas_previas", []),
         "cirurgias": patologica.get("cirurgias", []),
         "internacoes": patologica.get("internacoes", []),
-        "medicamentos_em_uso": patologica.get("medicamentos_em_uso", []),
+        "medicamentos_em_uso": meds.get("itens") or patologica.get("medicamentos_em_uso", []),
+        "medicacoes_observacao": meds.get("observacao", ""),
         "alergias": patologica.get("alergias", []),
     }
 
@@ -701,11 +646,25 @@ def validate_extracted(extracted: dict[str, Any]) -> list[DocxValidationIssue]:
             add(field, "error", f"Área clínica '{val}' não reconhecida — selecione o Eixo A")
 
     for field, label in _OPTIONAL_DOCX_FIELDS.items():
-        val = extracted.get(field)
-        if not val or len(val.strip()) < 5:
+        if not _has_content(extracted.get(field)):
             add(field, "warning", f"{label} ausente ou muito curto")
-    if not extracted.get("hipoteses_diagnosticas"):
-        add("hipoteses_diagnosticas", "warning", "Hipóteses diagnósticas não encontradas")
+
+    # Completude do modelo padronizado: sistemas do interrogatório, sinais vitais, subseções do agente.
+    interrogatorio = extracted.get("interrogatorio_complementar")
+    if isinstance(interrogatorio, dict) and _has_content(interrogatorio):
+        faltam = [label for key, label in SISTEMAS if not _has_content(interrogatorio.get(key))]
+        if faltam:
+            add("interrogatorio_complementar", "warning", "Interrogatório sem: " + ", ".join(faltam))
+    exame = extracted.get("exame_fisico")
+    if isinstance(exame, dict) and _has_content(exame) and not exame.get("sinais_vitais"):
+        add("exame_fisico", "warning", "Sinais vitais não encontrados no exame físico")
+    agente = extracted.get("agente_ia")
+    if isinstance(agente, dict) and _has_content(agente):
+        faltam = [label for key, label in AGENTE_SECOES if key in _AGENTE_ESPERADAS and not _has_content(agente.get(key))]
+        if faltam:
+            add("agente_ia", "warning", "Agente de IA sem: " + ", ".join(faltam))
+    if not extracted.get("medicamentos_em_uso") and not _has_content(extracted.get("medicacoes_observacao")):
+        add("medicamentos_em_uso", "warning", "Medicações em uso não encontradas (seção 6)")
     return issues
 
 

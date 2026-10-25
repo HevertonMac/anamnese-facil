@@ -2,39 +2,16 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import client from '../api/client'
+import { EIXO_A_LABELS, IDENTIFICACAO_CAMPOS, AGENTE_SECOES, labelFor } from '../caseModel'
 
 const COMPLEXITY_BADGE = { baixa: 'badge-green', media: 'badge-amber', alta: 'badge-red' }
 
-const EIXO_A_LABELS = {
-  cardiovascular: 'Cardiovascular',
-  respiratorio: 'Respiratório',
-  gastrointestinal: 'Gastrointestinal',
-  neurologico: 'Neurológico',
-  musculoesqueletico: 'Musculoesquelético',
-  endocrino_metabolico: 'Endócrino/Metabólico',
-  geniturinario: 'Geniturinário',
-  infectoparasitario: 'Infectoparasitário',
+const EIXO_B_LABELS = { colaborativo: 'Colaborativo', ansioso: 'Ansioso', resistente: 'Resistente', confuso: 'Confuso', minimizador: 'Minimizador' }
+const EIXO_C_LABELS = {
+  baixo_letramento_vulneravel: 'Baixo letramento / vulnerável', medio_letramento_media: 'Letramento médio / classe média',
+  alto_letramento_bom_acesso: 'Alto letramento / bom acesso', pediatrico: 'Pediátrico',
 }
-
-const SISTEMA_LABELS = {
-  cabeca: 'Cabeça',
-  olhos: 'Olhos',
-  ouvidos: 'Ouvidos',
-  nariz_boca_garganta: 'Nariz, boca e garganta',
-  pescoco: 'Pescoço',
-  aparelho_respiratorio_circulatorio: 'Aparelho respiratório e circulatório',
-  aparelho_digestivo: 'Aparelho digestivo',
-  aparelho_geniturinario: 'Aparelho geniturinário',
-  aparelho_locomotor: 'Aparelho locomotor',
-  pele: 'Pele',
-  sistema_nervoso: 'Sistema nervoso',
-  sintomas_gerais: 'Sintomas gerais',
-}
-
-const SINAIS_VITAIS_LABELS = {
-  pa: 'PA', fc: 'FC', fr: 'FR', tax: 'Tax', spo2: 'SpO₂',
-  peso: 'Peso', altura: 'Altura', imc: 'IMC',
-}
+const NIVEL = { baixo: 'Baixo', baixa: 'Baixa', medio: 'Médio', media: 'Média', alto: 'Alto', alta: 'Alta' }
 
 function Field({ label, value }) {
   if (value === null || value === undefined || value === '') return null
@@ -124,6 +101,13 @@ export default function PacienteDetalhe() {
   const sv    = ef.sinais_vitais || {}
   const hipot = cd.hipoteses_diagnosticas || []
   const agente = cd.caracteristicas_agente || ''
+  const agenteIa = cd.agente_ia || {}
+  const agenteSubsecoes = [
+    ...AGENTE_SECOES.filter(([k]) => agenteIa[k]?.length),
+    ...Object.keys(agenteIa).filter(k => k !== 'perfil' && !AGENTE_SECOES.some(([x]) => x === k) && agenteIa[k]?.length).map(k => [k, labelFor(k)]),
+  ]
+  const cls = cd.classificacao || {}
+  const medicamentos = hp.medicamentos_em_uso || []
 
   // Interrogatório: novo formato (por sistema) vs legado (texto único)
   const icEntries = Object.entries(ic).filter(([k]) => k !== 'texto' && ic[k])
@@ -152,6 +136,8 @@ export default function PacienteDetalhe() {
               {patient.idade && <span className="badge badge-gray">{patient.idade} anos</span>}
               {sexoLabel && <span className="badge badge-gray">{sexoLabel}</span>}
               {patient.case_number && <span className="badge badge-purple">Caso #{patient.case_number}</span>}
+              {patient.eixo_b && <span className="badge badge-gray">{EIXO_B_LABELS[patient.eixo_b] || patient.eixo_b}</span>}
+              {cls.condicao_social && <span className="badge badge-gray">Condição social {NIVEL[cls.condicao_social] || cls.condicao_social}</span>}
             </div>
           </div>
         </div>
@@ -182,20 +168,35 @@ export default function PacienteDetalhe() {
 
         {/* LEFT: Identificação + HDA + Social */}
         <div>
+          {cd.contexto_aluno && (
+            <div className="card mb-16">
+              <SectionHeader title="Contexto para o aluno" />
+              <TextBlock text={cd.contexto_aluno} />
+            </div>
+          )}
+
           <div className="card mb-16">
             <SectionHeader title="Identificação" />
             <dl>
               <Field label="Nome"         value={nome} />
               <Field label="Idade"        value={patient.idade ? `${patient.idade} anos` : null} />
               <Field label="Sexo"         value={sexoLabel} />
-              <Field label="Cor"          value={ident.cor} />
-              <Field label="Estado civil" value={ident.estado_civil} />
-              <Field label="Profissão"    value={ident.profissao} />
-              <Field label="Religião"     value={ident.religiao} />
-              <Field label="Residência"   value={ident.residencia} />
-              <Field label="Naturalidade" value={ident.naturalidade} />
+              {IDENTIFICACAO_CAMPOS.map(([k, label]) => <Field key={k} label={label} value={ident[k]} />)}
             </dl>
           </div>
+
+          {(cls.eixo_c || cls.letramento || cls.condicao_social || cls.perfil_sociodemografico || cls.nuance_eixo_b) && (
+            <div className="card mb-16">
+              <SectionHeader title="Classificação do caso" />
+              <dl>
+                <Field label="Perfil sociodemográfico (Eixo C)" value={EIXO_C_LABELS[cls.eixo_c] || cls.eixo_c} />
+                <Field label="Letramento"      value={NIVEL[cls.letramento] || cls.letramento} />
+                <Field label="Condição social" value={NIVEL[cls.condicao_social] || cls.condicao_social} />
+                <Field label="Descrição do perfil" value={cls.perfil_sociodemografico} />
+                <Field label="Nuance da comunicação (Eixo B)" value={cls.nuance_eixo_b} />
+              </dl>
+            </div>
+          )}
 
           {hda && (
             <div className="card mb-16">
@@ -204,17 +205,30 @@ export default function PacienteDetalhe() {
             </div>
           )}
 
-          {(agente) && (
+          {(agente || agenteIa.perfil) && (
             <div className="card mb-16">
-              <SectionHeader title="Características do Agente" />
-              <TextBlock text={agente} />
+              <SectionHeader title="Características do Agente de IA" />
+              <div className="text-muted" style={{ fontSize: 11.5, marginBottom: 8 }}>Uso interno — não é mostrado ao aluno.</div>
+              {agenteSubsecoes.length > 0 || agenteIa.perfil ? (
+                <>
+                  <TextBlock text={agenteIa.perfil} />
+                  {agenteSubsecoes.map(([k, label]) => (
+                    <div key={k} style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4 }}>{label}</div>
+                      <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.7, fontSize: 13.5 }}>
+                        {agenteIa[k].map((item, i) => <li key={i}>{item}</li>)}
+                      </ul>
+                    </div>
+                  ))}
+                </>
+              ) : <TextBlock text={agente} />}
             </div>
           )}
 
           {/* História social */}
           {(hs.tabagismo || hs.etilismo || hs.texto_livre) && (
             <div className="card mb-16">
-              <SectionHeader title="História Social" />
+              <SectionHeader title="Hábitos de Vida" />
               <dl>
                 <Field label="Tabagismo" value={hs.tabagismo} />
                 <Field label="Etilismo"  value={hs.etilismo} />
@@ -247,7 +261,7 @@ export default function PacienteDetalhe() {
                   <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, marginTop: 8 }}>Sinais vitais</div>
                   <dl>
                     {Object.entries(sv).map(([k, v]) => (
-                      <Field key={k} label={SINAIS_VITAIS_LABELS[k] || k.toUpperCase()} value={v} />
+                      <Field key={k} label={labelFor(k)} value={v} />
                     ))}
                   </dl>
                 </>
@@ -257,7 +271,7 @@ export default function PacienteDetalhe() {
                   <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, marginTop: 12 }}>Achados por aparelho</div>
                   <dl>
                     {efAchados.map(([k, v]) => (
-                      <Field key={k} label={k.replace(/_/g, ' ')} value={typeof v === 'string' ? v : JSON.stringify(v)} />
+                      <Field key={k} label={labelFor(k)} value={typeof v === 'string' ? v : JSON.stringify(v)} />
                     ))}
                   </dl>
                 </>
@@ -273,7 +287,7 @@ export default function PacienteDetalhe() {
               {icEntries.length > 0 ? (
                 <dl>
                   {icEntries.map(([k, v]) => (
-                    <Field key={k} label={SISTEMA_LABELS[k] || k.replace(/_/g, ' ')} value={v} />
+                    <Field key={k} label={labelFor(k)} value={v} />
                   ))}
                 </dl>
               ) : (
@@ -285,30 +299,46 @@ export default function PacienteDetalhe() {
           {/* História fisiológica */}
           {hf.texto_livre && (
             <div className="card mb-16">
-              <SectionHeader title="História Fisiológica" />
+              <SectionHeader title="Antecedentes Fisiológicos" />
               <TextBlock text={hf.texto_livre} />
             </div>
           )}
 
           {/* História patológica */}
-          {(hp.doencas_previas?.length || hp.cirurgias?.length || hp.internacoes?.length || hp.medicamentos_em_uso?.length || hp.alergias?.length || hp.texto_livre) && (
+          {(hp.doencas_previas?.length || hp.cirurgias?.length || hp.internacoes?.length || hp.alergias?.length || hp.texto_livre) && (
             <div className="card mb-16">
-              <SectionHeader title="História Patológica Pregressa" />
+              <SectionHeader title="Antecedentes Patológicos" />
               <dl>
                 <Field label="Doenças prévias"  value={hp.doencas_previas} />
                 <Field label="Cirurgias"         value={hp.cirurgias} />
                 <Field label="Internações"       value={hp.internacoes} />
-                <Field label="Medicamentos"      value={hp.medicamentos_em_uso} />
                 <Field label="Alergias"          value={hp.alergias} />
               </dl>
               {hp.texto_livre && <TextBlock text={hp.texto_livre} />}
             </div>
           )}
 
+          {/* Medicações em uso */}
+          {(medicamentos.length > 0 || hp.medicacoes_observacao) && (
+            <div className="card mb-16">
+              <SectionHeader title="Medicações em Uso" />
+              {medicamentos.length > 0 && (
+                <ul style={{ margin: '8px 0', paddingLeft: 20, lineHeight: 1.8, fontSize: 13.5 }}>
+                  {medicamentos.map((m, i) => <li key={i}>{m}</li>)}
+                </ul>
+              )}
+              {hp.medicacoes_observacao && (
+                <p style={{ margin: '8px 0 0', fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.65 }}>
+                  <strong>Observação:</strong> {hp.medicacoes_observacao}
+                </p>
+              )}
+            </div>
+          )}
+
           {/* História familiar */}
           {hfam.texto_livre && (
             <div className="card mb-16">
-              <SectionHeader title="História Familiar" />
+              <SectionHeader title="Antecedentes Familiares" />
               <TextBlock text={hfam.texto_livre} />
             </div>
           )}

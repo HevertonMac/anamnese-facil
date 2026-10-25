@@ -15,10 +15,12 @@ import re
 from typing import Any, Optional
 
 from scripts.ingest.case_parser import (
-    SECOES_RESTRITAS, bullets, labeled_blocks, norm, to_key,
+    AGENTE_SUBSECOES, SECOES_RESTRITAS, bullets, labeled_blocks, norm, to_key,
 )
 
-SCHEMA_VERSION = 2
+# v3: modelo padronizado (contexto_aluno, medicações em uso, agente_ia estruturado, classificação com
+# letramento/condição social). Leitores de v2 continuam funcionando: nenhuma chave antiga mudou de formato.
+SCHEMA_VERSION = 3
 
 VITAL_TOKENS = {"pa", "fc", "fr", "tax", "temperatura", "spo2", "sat", "peso", "altura", "estatura", "imc", "glicemia"}
 VITAL_BLOCK_LABELS = {"sinais vitais", "dados vitais", "dados antropometricos", "antropometria"}
@@ -39,6 +41,11 @@ def _vital_key(label: str) -> Optional[str]:
 def parse_sinais_vitais(text: str) -> dict[str, str]:
     """'PA: 108/70 mmHg. FC: 88 bpm | Tax: 37,3°C' -> {'pa': '108/70 mmHg', 'fc': '88 bpm', 'tax': '37,3°C'}."""
     out: dict[str, str] = {}
+    # "| Observação: texto livre, com várias frases." fica inteira (não pode ser quebrada em frases).
+    obs = re.search(r"(?:^|\|)\s*Observa[çc][ãa]o\s*:\s*(.+)$", text, re.S)
+    if obs:
+        out["observacao"] = obs.group(1).strip()
+        text = text[: obs.start()]
     for seg in re.split(r"\s*\|\s*|\n|\.\s+(?=[A-ZÀ-Ú])", text):
         seg = re.sub(r"^\s*[•◦▪\-–—*]\s*", "", seg).strip()
         m = re.match(r"^([A-Za-zÀ-ú0-9][^:]{0,40}):\s*(.+)$", seg)
@@ -65,7 +72,7 @@ def structure_exame_fisico(text: str, blocks: dict[str, str]) -> dict[str, Any]:
                     vitals.setdefault(k, v)
             else:
                 result[to_key(label)] = value
-        elif vk and len(value) < 240:
+        elif vk and (len(value) < 240 or "|" in value):
             # "PA: 108/70 mmHg. FC: 88 bpm" vira rótulo "PA" com o resto da linha como valor: reparte.
             parsed = parse_sinais_vitais(f"{label}: {value}")
             if parsed:
@@ -139,6 +146,60 @@ def structure_social(text: str, blocks: dict[str, str]) -> dict[str, Any]:
     return out
 
 
+def structure_agente(text: str) -> dict[str, Any]:
+    """'Características do Agente de IA' do modelo E -> {perfil: texto, <subseção>: [itens]}.
+    Documentos antigos (texto corrido, sem subseções) viram só {perfil: texto}."""
+    if not text.strip():
+        return {}
+    # Só os títulos conhecidos abrem subseção: um parágrafo de abertura como "Alfonso é um paciente
+    # colaborativo: responde..." também tem ':' e pareceria um rótulo para labeled_blocks.
+    buckets: dict[str, list[str]] = {"perfil": []}
+    current = "perfil"
+    for line in text.splitlines():
+        stripped = line.strip()
+        n = norm(stripped)
+        key = None
+        if stripped and len(stripped) <= 60 and not re.search(r"[.!?:;]$", stripped):
+            key = next((k for prefix, k in AGENTE_SUBSECOES if n.startswith(prefix)), None)
+        if key:
+            current = key
+            buckets.setdefault(current, [])
+        elif stripped:
+            buckets[current].append(stripped)
+    out: dict[str, Any] = {}
+    if buckets["perfil"]:
+        out["perfil"] = "\n\n".join(buckets.pop("perfil"))
+    for key, lines in buckets.items():
+        items = bullets("\n".join(lines)) if lines else []
+        if items:
+            out[key] = items
+    if set(out) <= {"perfil"}:
+        return {"perfil": text.strip()}
+    return out
+
+
+_SEM_MEDICACAO = re.compile(r"^(sem|nega|nenhum|n[ãa]o (faz|usa|toma|possui))\b", re.I)
+
+
+def structure_medicacoes(text: str) -> dict[str, Any]:
+    """Seção '6. Medicações em Uso': itens (um por linha) + observação.
+    Frases como 'Sem medicações de uso regular' não são medicamentos: vão para a observação."""
+    itens: list[str] = []
+    observacoes: list[str] = []
+    for line in bullets(text):
+        m = re.match(r"^Observa[çc][ãa]o\s*:\s*(.*)$", line, re.I)
+        if m:
+            observacoes.append(m.group(1).strip())
+        elif _SEM_MEDICACAO.match(line):
+            observacoes.insert(0, line.strip(" ."))
+        else:
+            itens.append(line)
+    out: dict[str, Any] = {"itens": itens}
+    if observacoes:
+        out["observacao"] = " ".join(o for o in observacoes if o)
+    return out
+
+
 def build_case_data(
     parsed: dict[str, Any],
     *,
@@ -163,9 +224,18 @@ def build_case_data(
     if classificacao.get("diagnostico_curado") and classificacao["diagnostico_curado"] != dx.get("principal"):
         diagnostico["principal_curado"] = classificacao["diagnostico_curado"]
 
+    medicacoes = structure_medicacoes(sec["medicacoes_em_uso"]) if sec.get("medicacoes_em_uso") else {}
+    patologica = structure_patologica(sec.get("historia_patologica", ""), blocks("historia_patologica"))
+    if medicacoes:
+        # Mesmo formato do cadastro manual/geração: lista de strings em historia_patologica.
+        patologica["medicamentos_em_uso"] = medicacoes["itens"]
+        if medicacoes.get("observacao"):
+            patologica["medicacoes_observacao"] = medicacoes["observacao"]
+
     case_data = {
         "schema_version": SCHEMA_VERSION,
         "arquivo_origem": arquivo,
+        "contexto_aluno": sec.get("contexto_aluno", ""),
         "identificacao": ident_final,
         "queixa_principal_texto": sec.get("queixa_principal", ""),
         "historia_doenca_atual": sec.get("historia_doenca_atual", ""),
@@ -173,8 +243,7 @@ def build_case_data(
             sec.get("interrogatorio_complementar", ""), parsed["interrogatorio"]),
         "historia_fisiologica": structure_texto_com_campos(
             sec.get("historia_fisiologica", ""), blocks("historia_fisiologica")),
-        "historia_patologica": structure_patologica(
-            sec.get("historia_patologica", ""), blocks("historia_patologica")),
+        "historia_patologica": patologica,
         "observacoes_especificas": sec.get("observacoes_especificas", ""),
         "historia_familiar": structure_texto_com_campos(
             sec.get("historia_familiar", ""), blocks("historia_familiar")),
@@ -186,6 +255,7 @@ def build_case_data(
         "diagnostico_completo": dx.get("principal") or classificacao.get("diagnostico_curado") or "",
         "hipoteses_diagnosticas": hipoteses,
         "caracteristicas_agente": sec.get("caracteristicas_agente", ""),
+        "agente_ia": structure_agente(sec.get("caracteristicas_agente", "")),
         "objetivos_educacionais": bullets(sec.get("objetivos_educacionais", "")),
         "referencias": bullets(sec.get("referencias", "")),
         "contexto_facilitador": sec.get("contexto_facilitador", ""),
@@ -195,6 +265,10 @@ def build_case_data(
         "classificacao": {
             "eixo_a": classificacao["eixo_a"], "eixo_b": classificacao["eixo_b"],
             "eixo_c": classificacao["eixo_c"], "complexidade": classificacao["complexidade"],
+            "letramento": classificacao.get("letramento"),
+            "condicao_social": classificacao.get("condicao_social"),
+            "perfil_sociodemografico": classificacao.get("perfil_sociodemografico"),
+            "nuance_eixo_b": classificacao.get("nuance_eixo_b"),
             "fontes": classificacao["fontes"],
         },
         "qualidade": qualidade,
