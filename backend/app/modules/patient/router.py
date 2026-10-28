@@ -283,13 +283,20 @@ async def get_embeddings(texts: list[str]) -> list[list[float]]:
 
     if not OPENAI_API_KEY:
         return [[0.0] * EMBEDDING_DIM for _ in texts]
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        resp = await client.post(
-            "https://api.openai.com/v1/embeddings",
-            headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
-            json={"model": EMBEDDING_MODEL, "input": texts},
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                "https://api.openai.com/v1/embeddings",
+                headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+                json={"model": EMBEDDING_MODEL, "input": texts},
+            )
+            resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        log.error(f"Falha ao gerar embeddings na OpenAI: {exc}")
+        raise HTTPException(
+            status_code=502,
+            detail="Falha ao gerar embeddings na OpenAI. Verifique a OPENAI_API_KEY do servidor.",
         )
-        resp.raise_for_status()
     return [item["embedding"] for item in resp.json()["data"]]
 
 
