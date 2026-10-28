@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import Layout from '../components/Layout'
 import client from '../api/client'
+import { useAuth } from '../contexts/AuthContext'
 
 const COMPLEXITY_BADGE = { baixa: 'badge-green', media: 'badge-amber', alta: 'badge-red' }
 
@@ -17,6 +18,7 @@ const EIXO_A_LABELS = {
 }
 
 export default function PacientesPage() {
+  const { user } = useAuth()
   const [patients, setPatients] = useState([])
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState('')
@@ -35,6 +37,19 @@ export default function PacientesPage() {
       .catch(() => setError('Não foi possível carregar os pacientes.'))
       .finally(() => setLoading(false))
   }, [filterArea, filterComp])
+
+  async function handleDelete(e, p) {
+    e.preventDefault()
+    e.stopPropagation()
+    const label = p.nome || `caso #${p.case_number}`
+    if (!window.confirm(`Excluir permanentemente "${label}"? Sessões e relatórios de avaliação deste paciente também serão removidos. Esta ação não pode ser desfeita.`)) return
+    try {
+      await client.delete(`/kb/patients/${p.id}`)
+      setPatients(prev => prev.filter(x => x.id !== p.id))
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Não foi possível excluir o paciente.')
+    }
+  }
 
   // Build area list from eixo_a field
   const areas = [...new Set(patients.map(p => p.eixo_a).filter(Boolean))].sort()
@@ -121,6 +136,15 @@ export default function PacientesPage() {
                     <div style={{ marginTop: 10, fontSize: 12.5, color: 'var(--text-muted)', lineHeight: 1.4 }}>
                       {p.diagnostico_principal}
                     </div>
+                  )}
+                  {user?.role === 'admin' && (
+                    <button
+                      className="btn btn-danger"
+                      style={{ marginTop: 12, fontSize: 12, padding: '4px 10px' }}
+                      onClick={e => handleDelete(e, p)}
+                    >
+                      Excluir
+                    </button>
                   )}
                 </Link>
               )

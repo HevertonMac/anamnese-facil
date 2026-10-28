@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import client from '../api/client'
+import { useAuth } from '../contexts/AuthContext'
 import { EIXO_A_LABELS, IDENTIFICACAO_CAMPOS, AGENTE_SECOES, labelFor } from '../caseModel'
 
 const COMPLEXITY_BADGE = { baixa: 'badge-green', media: 'badge-amber', alta: 'badge-red' }
@@ -52,6 +53,8 @@ export default function PacienteDetalhe() {
   const [patient, setPatient] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const { user } = useAuth()
 
   useEffect(() => {
     client.get(`/kb/patients/${id}`)
@@ -82,8 +85,21 @@ export default function PacienteDetalhe() {
     </Layout>
   )
 
+  async function handleDelete() {
+    const label = patient.nome || `caso #${patient.case_number}`
+    if (!window.confirm(`Excluir permanentemente "${label}"? Sessões e relatórios de avaliação deste paciente também serão removidos. Esta ação não pode ser desfeita.`)) return
+    setDeleting(true)
+    try {
+      await client.delete(`/kb/patients/${id}`)
+      navigate('/pacientes', { replace: true })
+    } catch (e) {
+      setDeleting(false)
+      window.alert(e.response?.data?.detail || 'Não foi possível excluir o paciente.')
+    }
+  }
+
   // ── Top-level patient fields ──────────────────────────────────────────
-  const nome       = patient.nome || 'Paciente Virtual'
+  const nome      = patient.nome || 'Paciente Virtual'
   const compKey    = (patient.complexidade || '').toLowerCase()
   const areaLabel  = EIXO_A_LABELS[patient.eixo_a] || patient.eixo_a
   const sexoLabel  = patient.sexo === 'M' ? 'Masculino' : patient.sexo === 'F' ? 'Feminino' : patient.sexo
@@ -140,6 +156,11 @@ export default function PacienteDetalhe() {
               {cls.condicao_social && <span className="badge badge-gray">Condição social {NIVEL[cls.condicao_social] || cls.condicao_social}</span>}
             </div>
           </div>
+          {user?.role === 'admin' && (
+            <button className="btn btn-danger" onClick={handleDelete} disabled={deleting}>
+              {deleting ? 'Excluindo...' : 'Excluir paciente'}
+            </button>
+          )}
         </div>
 
         {(patient.queixa_principal || cd.queixa_principal_texto) && (

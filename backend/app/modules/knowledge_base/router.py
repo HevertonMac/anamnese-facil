@@ -1,17 +1,23 @@
 # backend/app/modules/knowledge_base/router.py
 from __future__ import annotations
+import logging
 import uuid
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select, text, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
-from app.db.models import KnowledgeChunk, VirtualPatient
+from app.db.models import (
+    ConversationMessage, EvaluationReport, KnowledgeChunk,
+    SimulationSession, User, VirtualPatient,
+)
+from app.modules.auth.router import require_admin
 from app.schemas.patient import (
     KnowledgeSearchRequest, KnowledgeSearchResult,
     VirtualPatientCreate, VirtualPatientDetail, VirtualPatientResponse,
 )
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/kb", tags=["knowledge_base"])
 
 
@@ -53,6 +59,34 @@ async def create_patient(data: VirtualPatientCreate, db: AsyncSession = Depends(
     await db.commit()
     await db.refresh(patient)
     return patient
+
+
+@router.delete("/patients/{patient_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_patient(
+    patient_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Remove permanentemente o paciente e sessões/relatórios associados (admin)."""
+    result = await db.execute(select(VirtualPatient).where(VirtualPatient.id == patient_id))
+    patient = result.scalar_one_or_none()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    case_number = patient.case_number
+    try:
+        session_ids = select(SimulationSession.id).where(SimulationSession.patient_id == patient_id)
+        await db.execute(delete(EvaluationReport).where(EvaluationReport.session_id.in_(session_ids)))
+        await db.execute(delete(ConversationMessage).where(ConversationMessage.session_id.in_(session_ids)))
+        await db.execute(delete(SimulationSession).where(SimulationSession.patient_id == patient_id))
+        await db.execute(delete(KnowledgeChunk).where(KnowledgeChunk.patient_id == patient_id))
+        await db.execute(delete(VirtualPatient).where(VirtualPatient.id == patient_id))
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        log.exception("Falha ao excluir paciente %s", patient_id)
+        raise HTTPException(status_code=500, detail="Failed to delete patient")
+    log.warning("Paciente %s (caso %s) excluído por %s", patient_id, case_number, admin.email)
 
 
 @router.post("/search", response_model=list[KnowledgeSearchResult])

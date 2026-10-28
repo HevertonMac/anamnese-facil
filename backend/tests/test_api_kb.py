@@ -308,3 +308,52 @@ class TestHealth:
         data = resp.json()
         assert data["status"] == "ok"
         assert data["service"] == "anamnese-facil-api"
+
+
+# ===========================================================================
+# DELETE /api/v1/kb/patients/{id}  (admin only)
+# ===========================================================================
+
+class TestDeletePatient:
+    @staticmethod
+    def _as_user(role: str):
+        from app.main import app
+        from app.modules.auth.router import get_current_user
+
+        user = MagicMock()
+        user.role = role
+        user.email = f"{role}@test.com"
+        app.dependency_overrides[get_current_user] = lambda: user
+
+    async def test_requires_authentication(self, api_client):
+        resp = await api_client.delete(f"/api/v1/kb/patients/{uuid.uuid4()}")
+        assert resp.status_code in (401, 403)
+
+    async def test_non_admin_forbidden(self, api_client, mock_db_session):
+        self._as_user("student")
+        resp = await api_client.delete(f"/api/v1/kb/patients/{uuid.uuid4()}")
+        assert resp.status_code == 403
+        mock_db_session.commit.assert_not_called()
+
+    async def test_admin_patient_not_found(self, api_client, mock_db_session):
+        self._as_user("admin")
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = None
+        mock_db_session.execute = AsyncMock(return_value=result_mock)
+
+        resp = await api_client.delete(f"/api/v1/kb/patients/{uuid.uuid4()}")
+        assert resp.status_code == 404
+        mock_db_session.commit.assert_not_called()
+
+    async def test_admin_deletes_patient(self, api_client, mock_db_session):
+        self._as_user("admin")
+        patient = make_patient(case_number=7)
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = patient
+        mock_db_session.execute = AsyncMock(return_value=result_mock)
+
+        resp = await api_client.delete(f"/api/v1/kb/patients/{patient.id}")
+        assert resp.status_code == 204
+        # select + 5 deletes (reports, messages, sessions, chunks, patient)
+        assert mock_db_session.execute.await_count == 6
+        mock_db_session.commit.assert_awaited_once()

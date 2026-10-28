@@ -402,6 +402,10 @@ select.form-control { cursor: pointer; }
 .btn-primary:hover { background: var(--blue-i); }
 .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
 
+.btn-danger { background: transparent; color: #c0392b; border: 1px solid #c0392b; }
+.btn-danger:hover { background: #c0392b; color: #fff; }
+.btn-danger:disabled { opacity: .5; cursor: not-allowed; }
+
 .btn-outline {
   background: #fff;
   border: 1px solid var(--border);
