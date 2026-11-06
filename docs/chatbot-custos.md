@@ -12,6 +12,12 @@ limitada por `CHAT_MAX_OUTPUT_TOKENS`. Cada resposta do paciente grava `prompt_t
 - Preços em `app/modules/chat/pricing.py` (apenas referência) ou `CHAT_PRICES_JSON`. **Confirme os valores
   vigentes nas páginas oficiais**; modelos sem preço registram custo 0 com aviso no log.
 
+## Registros para análise
+- Por mensagem (`conversation_messages`): tokens de entrada/saída, modelo, provedor, `cost_usd` e `latency_ms`.
+- Por sessão (admin): `GET /api/v1/chat/usage/sessions?days=30` (JSON) ou `/usage/sessions.csv` (planilha):
+  aluno, caso, turnos, tokens, custo, latência média, status e horários. Dá para calcular custo médio por
+  sessão/turno e comparar provedores e modelos.
+
 ## Projetar (simulador)
 ```
 cd backend

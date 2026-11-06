@@ -40,3 +40,10 @@ def max_message_chars() -> int:
 
 def rate_limit_per_minute() -> int:
     return _int("CHAT_RATE_LIMIT_PER_MIN", 20)
+
+
+def temperature() -> float:
+    try:
+        return float(os.environ.get("CHAT_TEMPERATURE", 0.9))
+    except ValueError:
+        return 0.9

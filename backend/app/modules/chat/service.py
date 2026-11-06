@@ -1,7 +1,11 @@
 """Lógica do chat: sessões, histórico, chamada ao LLM e registro de uso."""
 from __future__ import annotations
 
+import csv
+import io
 import logging
+import re
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -98,6 +102,19 @@ def _to_llm_messages(history: list[ConversationMessage], new_content: str) -> li
     return msgs
 
 
+_LABEL_RE = re.compile(r"^\s*(paciente|assistente|assistant)\s*:\s*", re.IGNORECASE)
+
+
+def clean_reply(text: str) -> str:
+    """Remove vícios de chatbot que escapam do prompt: rótulo de falante, markdown e aspas externas."""
+    text = _LABEL_RE.sub("", text.strip())
+    text = re.sub(r"\*\*?|__|`", "", text)
+    text = re.sub(r"^\s*[-•]\s+", "", text, flags=re.MULTILINE)
+    if len(text) > 1 and text[0] == text[-1] == '"':
+        text = text[1:-1]
+    return text.strip()
+
+
 async def send_message(
     db: AsyncSession, session: SimulationSession, user: User, content: str
 ) -> tuple[ConversationMessage, ConversationMessage]:
@@ -125,11 +142,13 @@ async def send_message(
     )
     history = list(reversed((await db.execute(hist_stmt)).scalars().all()))
 
+    started = time.perf_counter()
     try:
         result = await get_provider().chat(
             system=build_system_prompt(patient.case_data),
             messages=_to_llm_messages(history, content),
             max_tokens=config.max_output_tokens(),
+            temperature=config.temperature(),
         )
     except LLMNotConfigured as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
@@ -137,18 +156,20 @@ async def send_message(
         log.error(f"Falha no LLM do chat: {e}")
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Falha ao obter resposta do paciente. Tente novamente.")
 
+    latency_ms = int((time.perf_counter() - started) * 1000)
     # created_at explícito: as duas linhas entram na mesma transação e o now() do servidor seria igual.
     now = datetime.now(timezone.utc)
     user_msg = ConversationMessage(session_id=session.id, role="user", content=content, created_at=now)
     patient_msg = ConversationMessage(
         session_id=session.id,
         role="assistant",
-        content=result.text.strip(),
+        content=clean_reply(result.text),
         created_at=now + timedelta(milliseconds=1),
         prompt_tokens=result.prompt_tokens,
         completion_tokens=result.completion_tokens,
         model=result.model,
         provider=result.provider,
+        latency_ms=latency_ms,
         cost_usd=cost_usd(result.provider, result.model, result.prompt_tokens, result.completion_tokens),
     )
     db.add(user_msg)
@@ -179,3 +200,51 @@ async def usage_summary(db: AsyncSession, days: int = 30) -> list[dict]:
         .order_by(day.desc())
     )
     return [dict(r._mapping) for r in (await db.execute(stmt)).all()]
+
+
+async def sessions_usage(db: AsyncSession, days: int = 30) -> list[dict]:
+    """Uma linha por sessão: quem, qual paciente, quanto gastou (tokens/custo) e quanto durou."""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    a = ConversationMessage.role == "assistant"
+    stmt = (
+        select(
+            SimulationSession.id.label("session_id"),
+            SimulationSession.student_id.label("user_id"),
+            User.email.label("user_email"),
+            SimulationSession.patient_id.label("patient_id"),
+            VirtualPatient.case_number.label("case_number"),
+            SimulationSession.status.label("status"),
+            SimulationSession.started_at.label("started_at"),
+            SimulationSession.ended_at.label("ended_at"),
+            func.count().filter(a).label("turns"),
+            func.max(ConversationMessage.provider).label("provider"),
+            func.max(ConversationMessage.model).label("model"),
+            func.coalesce(func.sum(ConversationMessage.prompt_tokens), 0).label("prompt_tokens"),
+            func.coalesce(func.sum(ConversationMessage.completion_tokens), 0).label("completion_tokens"),
+            func.coalesce(func.sum(ConversationMessage.cost_usd), 0).label("cost_usd"),
+            func.avg(ConversationMessage.latency_ms).label("avg_latency_ms"),
+        )
+        .join(ConversationMessage, ConversationMessage.session_id == SimulationSession.id)
+        .join(User, User.id == SimulationSession.student_id)
+        .join(VirtualPatient, VirtualPatient.id == SimulationSession.patient_id)
+        .where(SimulationSession.started_at >= since)
+        .group_by(SimulationSession.id, User.email, VirtualPatient.case_number)
+        .order_by(SimulationSession.started_at.desc())
+    )
+    rows = []
+    for r in (await db.execute(stmt)).all():
+        d = dict(r._mapping)
+        d["avg_latency_ms"] = int(d["avg_latency_ms"]) if d["avg_latency_ms"] is not None else None
+        rows.append(d)
+    return rows
+
+
+def sessions_usage_csv(rows: list[dict]) -> str:
+    cols = ["session_id", "user_email", "case_number", "status", "started_at", "ended_at", "turns",
+            "provider", "model", "prompt_tokens", "completion_tokens", "cost_usd", "avg_latency_ms"]
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(cols)
+    for r in rows:
+        w.writerow([r.get(c, "") if r.get(c) is not None else "" for c in cols])
+    return buf.getvalue()

@@ -5,6 +5,7 @@ import uuid
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
@@ -18,6 +19,7 @@ from app.modules.chat.schemas import (
     SessionCreate,
     SessionDetail,
     SessionOut,
+    SessionUsageRow,
     UsageRow,
 )
 
@@ -82,3 +84,28 @@ async def usage(
 ):
     """Uso de tokens e custo agregados por dia/usuário/modelo (admin)."""
     return await service.usage_summary(db, days)
+
+
+@router.get("/usage/sessions", response_model=list[SessionUsageRow])
+async def usage_sessions(
+    days: int = Query(30, ge=1, le=365),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Uma linha por sessão (aluno, caso, turnos, tokens, custo, latência) para análise de custos (admin)."""
+    return await service.sessions_usage(db, days)
+
+
+@router.get("/usage/sessions.csv")
+async def usage_sessions_csv(
+    days: int = Query(30, ge=1, le=365),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Mesmo conteúdo de /usage/sessions em CSV."""
+    csv_text = service.sessions_usage_csv(await service.sessions_usage(db, days))
+    return Response(
+        csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="chat_usage_sessions.csv"'},
+    )

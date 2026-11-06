@@ -27,6 +27,7 @@ class MessageOut(BaseModel):
     model: Optional[str] = None
     provider: Optional[str] = None
     cost_usd: Optional[Decimal] = None
+    latency_ms: Optional[int] = None
 
     model_config = {"from_attributes": True}
 
@@ -62,3 +63,21 @@ class UsageRow(BaseModel):
     prompt_tokens: int
     completion_tokens: int
     cost_usd: Decimal
+
+
+class SessionUsageRow(BaseModel):
+    session_id: uuid.UUID
+    user_id: uuid.UUID
+    user_email: str
+    patient_id: uuid.UUID
+    case_number: int
+    status: str
+    started_at: datetime
+    ended_at: Optional[datetime] = None
+    turns: int
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    prompt_tokens: int
+    completion_tokens: int
+    cost_usd: Decimal
+    avg_latency_ms: Optional[int] = None

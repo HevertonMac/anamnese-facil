@@ -271,3 +271,66 @@ async def test_api_usage_so_admin(api_client, as_user):
     as_user(_user("student"))
     r = await api_client.get("/api/v1/chat/usage")
     assert r.status_code == 403
+
+
+# ── humanização / limpeza da resposta ─────────────────────────────────────────
+
+def test_prompt_pede_fala_humana():
+    prompt = build_system_prompt(SAMPLE_CASE_JSON)
+    assert "NÃO é um assistente" in prompt
+    assert "Nada de listas" in prompt
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("Paciente: Tô com dor, doutor.", "Tô com dor, doutor."),
+    ('"Bom dia, doutor."', "Bom dia, doutor."),
+    ("É **forte** mesmo.", "É forte mesmo."),
+    ("- dói aqui\n- e aqui", "dói aqui\ne aqui"),
+])
+def test_clean_reply(raw, expected):
+    assert service.clean_reply(raw) == expected
+
+
+async def test_send_message_grava_latencia_e_temperatura(mock_db_session, monkeypatch):
+    monkeypatch.setenv("CHAT_TEMPERATURE", "0.95")
+    user = _user()
+    seen = {}
+
+    class P(FakeProvider):
+        async def chat(self, system, messages, max_tokens, temperature=0.7):
+            seen["t"] = temperature
+            return await super().chat(system, messages, max_tokens, temperature)
+
+    monkeypatch.setattr(service, "get_provider", lambda: P())
+    _db_with_counts(mock_db_session, make_patient())
+    _, patient_msg = await service.send_message(mock_db_session, _session(user), user, "oi")
+    assert seen["t"] == 0.95
+    assert isinstance(patient_msg.latency_ms, int) and patient_msg.latency_ms >= 0
+
+
+# ── resumo por sessão / CSV ───────────────────────────────────────────────────
+
+def test_sessions_usage_csv():
+    rows = [{
+        "session_id": "s1", "user_email": "a@b.c", "case_number": 3, "status": "ended",
+        "started_at": "2026-11-06", "ended_at": None, "turns": 4, "provider": "openai",
+        "model": "gpt-4o-mini", "prompt_tokens": 100, "completion_tokens": 20,
+        "cost_usd": Decimal("0.0003"), "avg_latency_ms": 800,
+    }]
+    lines = service.sessions_usage_csv(rows).strip().splitlines()
+    assert lines[0].startswith("session_id,user_email,case_number")
+    assert lines[1].startswith("s1,a@b.c,3,ended,2026-11-06,,4,openai,gpt-4o-mini,100,20,0.0003,800")
+
+
+async def test_api_usage_sessions_so_admin(api_client, as_user):
+    as_user(_user("student"))
+    assert (await api_client.get("/api/v1/chat/usage/sessions")).status_code == 403
+    assert (await api_client.get("/api/v1/chat/usage/sessions.csv")).status_code == 403
+
+
+async def test_api_usage_sessions_csv_admin(api_client, as_user, monkeypatch):
+    as_user(_user("admin"))
+    monkeypatch.setattr(service, "sessions_usage", AsyncMock(return_value=[]))
+    r = await api_client.get("/api/v1/chat/usage/sessions.csv")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/csv")
+    assert r.text.startswith("session_id,")

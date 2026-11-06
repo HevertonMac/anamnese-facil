@@ -151,6 +151,7 @@ class ConversationMessage(Base):
     model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     provider: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     cost_usd: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6), nullable=True)
+    latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     session: Mapped[SimulationSession] = relationship(back_populates="messages")
 
