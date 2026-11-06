@@ -22,6 +22,14 @@ services:
       - key: OPENAI_API_KEY
         sync: false
 
+      # Chat com paciente virtual (CHAT_PROVIDER=anthropic exige ANTHROPIC_API_KEY)
+      - key: CHAT_PROVIDER
+        value: openai
+      - key: CHAT_MODEL
+        value: gpt-4o-mini
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
       - key: OPENAI_EMBEDDING_MODEL
         value: text-embedding-3-small
 

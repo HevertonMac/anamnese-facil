@@ -8,6 +8,7 @@ import PacienteDetalhe from './pages/PacienteDetalhe'
 import BuscaSemanticaPage from './pages/BuscaSemanticaPage'
 import GerarPacientePage from './pages/GerarPacientePage'
 import CadastrarPacientePage from './pages/CadastrarPacientePage'
+import ChatPage from './pages/ChatPage'
 
 function AppRoutes() {
   return (
@@ -19,6 +20,8 @@ function AppRoutes() {
       <Route path="/busca" element={<PrivateRoute><BuscaSemanticaPage /></PrivateRoute>} />
       <Route path="/gerar" element={<PrivateRoute><GerarPacientePage /></PrivateRoute>} />
       <Route path="/cadastrar" element={<PrivateRoute><CadastrarPacientePage /></PrivateRoute>} />
+      <Route path="/chat" element={<PrivateRoute><ChatPage /></PrivateRoute>} />
+      <Route path="/chat/:sessionId" element={<PrivateRoute><ChatPage /></PrivateRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

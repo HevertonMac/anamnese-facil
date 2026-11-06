@@ -7,11 +7,12 @@ from __future__ import annotations
 import uuid
 import enum
 from datetime import datetime
+from decimal import Decimal
 from typing import Optional
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
-    Boolean, DateTime, Enum, ForeignKey, Integer, String, Text,
+    Boolean, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text,
     UniqueConstraint, func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -144,6 +145,12 @@ class ConversationMessage(Base):
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Uso de LLM (preenchido apenas nas mensagens do paciente/assistant)
+    prompt_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    completion_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    provider: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    cost_usd: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6), nullable=True)
 
     session: Mapped[SimulationSession] = relationship(back_populates="messages")
 
