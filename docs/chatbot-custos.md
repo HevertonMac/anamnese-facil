@@ -18,6 +18,21 @@ limitada por `CHAT_MAX_OUTPUT_TOKENS`. Cada resposta do paciente grava `prompt_t
   aluno, caso, turnos, tokens, custo, latência média, status e horários. Dá para calcular custo médio por
   sessão/turno e comparar provedores e modelos.
 
+## Análise de custos na plataforma (somente dev)
+- Tela **Custos (dev)** (`/custos`, só admin): *Painel* (totais, custo por dia, por modelo, por caso e por aluno,
+  custo por sessão/turno, tokens médios, latência média e p95), *Conversas* (lista filtrável por modelo/e-mail
+  com transcrição, tokens/custo/latência por mensagem e o system prompt usado) e *Modelos* (comparação lado a lado).
+  Exporta CSV (sessões) e JSON (conversas completas).
+- Exclusividade: controlada por `CHAT_ANALYTICS_ENABLED`; se ausente, liga só com `ENVIRONMENT=development`.
+  Desligada, os endpoints `/chat/usage*` e `/chat/analytics/*` respondem 404 e o menu some. O `render.yaml`
+  fixa `false` em produção.
+- Cada sessão guarda provedor, modelo, temperatura e o system prompt (congelado na criação), então a conversa
+  é reproduzível e comparável mesmo se o caso for editado depois.
+
+## Escolha do modelo
+Admin escolhe o modelo da OpenAI ao iniciar a conversa (lista em `CHAT_ALLOWED_MODELS`, default
+`gpt-4o-mini,gpt-4o`). Alunos usam `CHAT_MODEL`. Preços de modelos novos: `CHAT_PRICES_JSON`.
+
 ## Projetar (simulador)
 ```
 cd backend

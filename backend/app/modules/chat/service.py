@@ -24,11 +24,29 @@ from app.modules.chat.prompt import build_system_prompt
 log = logging.getLogger(__name__)
 
 
-async def create_session(db: AsyncSession, user: User, patient_id: uuid.UUID) -> SimulationSession:
+async def create_session(
+    db: AsyncSession, user: User, patient_id: uuid.UUID, model: str | None = None
+) -> SimulationSession:
+    provider = config.provider_name()
+    if model is not None:
+        if user.role != "admin":
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Apenas administradores podem escolher o modelo")
+        if provider != "openai" or model not in config.allowed_models():
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Modelo não permitido: {model}")
     patient = await db.get(VirtualPatient, patient_id)
     if patient is None or not patient.is_active:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Paciente não encontrado")
-    session = SimulationSession(patient_id=patient_id, student_id=user.id, status="active")
+    system_prompt = build_system_prompt(patient.case_data)
+    session = SimulationSession(
+        patient_id=patient_id,
+        student_id=user.id,
+        status="active",
+        provider=provider,
+        model=model or config.model_name(provider),
+        temperature=config.temperature(),
+        system_prompt=system_prompt,
+        system_prompt_tokens=max(1, len(system_prompt) // 4),  # aproximação chars/4
+    )
     db.add(session)
     await db.commit()
     await db.refresh(session)
@@ -130,9 +148,13 @@ async def send_message(
 
     await _enforce_limits(db, session, user)
 
-    patient = await db.get(VirtualPatient, session.patient_id)
-    if patient is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Paciente não encontrado")
+    # Prompt congelado na criação da sessão (conversa reproduzível); sessões antigas reconstroem do caso.
+    system_prompt = session.system_prompt
+    if not system_prompt:
+        patient = await db.get(VirtualPatient, session.patient_id)
+        if patient is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Paciente não encontrado")
+        system_prompt = build_system_prompt(patient.case_data)
 
     hist_stmt = (
         select(ConversationMessage)
@@ -144,11 +166,11 @@ async def send_message(
 
     started = time.perf_counter()
     try:
-        result = await get_provider().chat(
-            system=build_system_prompt(patient.case_data),
+        result = await get_provider(session.provider, session.model).chat(
+            system=system_prompt,
             messages=_to_llm_messages(history, content),
             max_tokens=config.max_output_tokens(),
-            temperature=config.temperature(),
+            temperature=session.temperature if session.temperature is not None else config.temperature(),
         )
     except LLMNotConfigured as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
@@ -202,7 +224,9 @@ async def usage_summary(db: AsyncSession, days: int = 30) -> list[dict]:
     return [dict(r._mapping) for r in (await db.execute(stmt)).all()]
 
 
-async def sessions_usage(db: AsyncSession, days: int = 30) -> list[dict]:
+async def sessions_usage(
+    db: AsyncSession, days: int = 30, model: str | None = None, user: str | None = None
+) -> list[dict]:
     """Uma linha por sessão: quem, qual paciente, quanto gastou (tokens/custo) e quanto durou."""
     since = datetime.now(timezone.utc) - timedelta(days=days)
     a = ConversationMessage.role == "assistant"
@@ -223,6 +247,8 @@ async def sessions_usage(db: AsyncSession, days: int = 30) -> list[dict]:
             func.coalesce(func.sum(ConversationMessage.completion_tokens), 0).label("completion_tokens"),
             func.coalesce(func.sum(ConversationMessage.cost_usd), 0).label("cost_usd"),
             func.avg(ConversationMessage.latency_ms).label("avg_latency_ms"),
+            SimulationSession.temperature.label("temperature"),
+            SimulationSession.system_prompt_tokens.label("system_prompt_tokens"),
         )
         .join(ConversationMessage, ConversationMessage.session_id == SimulationSession.id)
         .join(User, User.id == SimulationSession.student_id)
@@ -231,6 +257,10 @@ async def sessions_usage(db: AsyncSession, days: int = 30) -> list[dict]:
         .group_by(SimulationSession.id, User.email, VirtualPatient.case_number)
         .order_by(SimulationSession.started_at.desc())
     )
+    if model:
+        stmt = stmt.where(SimulationSession.model == model)
+    if user:
+        stmt = stmt.where(User.email.ilike(f"%{user}%"))
     rows = []
     for r in (await db.execute(stmt)).all():
         d = dict(r._mapping)

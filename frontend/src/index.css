@@ -537,3 +537,29 @@ tr:hover td { background: var(--tint); }
 .chat-meta { margin-top: 5px; font-size: 11px; opacity: .65; }
 .chat-input { display: flex; gap: 8px; padding-top: 10px; border-top: 1px solid #E2E8F0; }
 .chat-input .form-control { flex: 1; }
+
+/* ── Análise de custos (dev) ─────────────────────── */
+.cost-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+.cost-tabs { display: flex; gap: 4px; margin-right: auto; }
+.cost-tab { border: 1px solid #CBD5E1; background: #fff; padding: 7px 14px; border-radius: 7px; font-size: 13.5px; cursor: pointer; }
+.cost-tab.active { background: var(--blue-p); color: #fff; border-color: var(--blue-p); }
+.cost-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.cost-stat-label { font-size: 12px; color: #64748B; }
+.cost-stat-value { font-size: 20px; font-weight: 600; margin-top: 2px; }
+.cost-stat-sub { font-size: 12px; color: #64748B; margin-top: 2px; }
+.cost-h { margin: 0 0 10px; font-size: 15px; }
+.cost-note { margin-top: 0; font-size: 13px; color: #64748B; }
+.cost-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.cost-table th, .cost-table td { padding: 7px 10px; border-bottom: 1px solid #E2E8F0; text-align: left; white-space: nowrap; }
+.cost-table th { font-size: 12px; color: #64748B; font-weight: 600; }
+.cost-table .r { text-align: right; }
+.cost-table tr.clickable { cursor: pointer; }
+.cost-table tr.clickable:hover { background: #F8FAFC; }
+.cost-bar-row { display: flex; align-items: center; gap: 10px; margin: 5px 0; font-size: 13px; }
+.cost-bar-label { width: 86px; color: #475569; }
+.cost-bar-track { flex: 1; background: #F1F5F9; border-radius: 4px; height: 14px; }
+.cost-bar { background: var(--blue-p); height: 14px; border-radius: 4px; min-width: 2px; }
+.cost-bar-val { width: 190px; text-align: right; color: #475569; }
+.cost-filters { display: flex; gap: 10px; margin-bottom: 12px; }
+.cost-filters .form-control { max-width: 260px; }
+.cost-prompt { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 7px; padding: 10px; font-size: 12px; white-space: pre-wrap; max-height: 320px; overflow: auto; margin-top: 8px; }

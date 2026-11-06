@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import Layout from '../components/Layout'
 import client from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
+import useChatConfig from '../hooks/useChatConfig'
 
 function errorMessage(err, fallback) {
   const d = err.response?.data?.detail
@@ -13,8 +14,10 @@ const fmtUsd = (v) => `US$ ${Number(v || 0).toFixed(5)}`
 
 function PatientPicker() {
   const navigate = useNavigate()
+  const config = useChatConfig()
   const [patients, setPatients] = useState([])
   const [patientId, setPatientId] = useState('')
+  const [model, setModel] = useState('')
   const [loading, setLoading] = useState(true)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState('')
@@ -31,7 +34,9 @@ function PatientPicker() {
     setStarting(true)
     setError('')
     try {
-      const r = await client.post('/chat/sessions', { patient_id: patientId })
+      const payload = { patient_id: patientId }
+      if (config?.can_choose_model && model) payload.model = model
+      const r = await client.post('/chat/sessions', payload)
       navigate(`/chat/${r.data.id}`)
     } catch (err) {
       setError(errorMessage(err, 'Não foi possível iniciar a sessão.'))
@@ -57,6 +62,18 @@ function PatientPicker() {
             ))}
           </select>
         </div>
+        {config?.can_choose_model && (
+          <div className="form-group">
+            <label className="form-label">Modelo de IA (OpenAI)</label>
+            <select className="form-control" value={model || config.default_model} onChange={e => setModel(e.target.value)}>
+              {config.models.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.id}{m.price_in != null ? ` — US$ ${m.price_in} / ${m.price_out} por 1M tokens (ent./saída)` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <button className="btn btn-primary" disabled={!patientId || starting}>
           {starting ? 'Iniciando…' : 'Iniciar conversa'}
         </button>
@@ -119,7 +136,7 @@ function ChatSession({ sessionId }) {
     <div className="card chat-box">
       <div className="chat-header">
         <span className={`badge ${active ? 'badge-green' : 'badge-gray'}`}>{active ? 'Em andamento' : 'Encerrada'}</span>
-        {isAdmin && <span className="chat-usage">{totals.tokens} tokens · {fmtUsd(totals.cost)}</span>}
+        {isAdmin && <span className="chat-usage">{session?.model} · {totals.tokens} tokens · {fmtUsd(totals.cost)}</span>}
         {active && <button className="btn btn-outline" onClick={end}>Encerrar sessão</button>}
       </div>
 

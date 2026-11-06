@@ -1,5 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import useChatConfig from '../hooks/useChatConfig'
 
 const ROLE_LABELS = { student: 'Aluno', teacher: 'Professor', admin: 'Admin' }
 const ROLE_CLASS  = { student: 'role-student', teacher: 'role-teacher', admin: 'role-admin' }
@@ -31,8 +32,15 @@ const NAV_ITEMS = [
   },
 ]
 
+const COST_ITEM = {
+  to: '/custos', label: 'Custos (dev)',
+  icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+}
+
 export default function Sidebar() {
   const { user, logout } = useAuth()
+  const chatConfig = useChatConfig()
+  const items = chatConfig?.analytics_enabled ? [...NAV_ITEMS, COST_ITEM] : NAV_ITEMS
   const navigate = useNavigate()
 
   function handleLogout() {
@@ -50,7 +58,7 @@ export default function Sidebar() {
       <div className="sidebar-section-label">Menu</div>
 
       <nav style={{ flex: 1 }}>
-        {NAV_ITEMS.map(({ to, icon, label }) => (
+        {items.map(({ to, icon, label }) => (
           <NavLink
             key={to}
             to={to}

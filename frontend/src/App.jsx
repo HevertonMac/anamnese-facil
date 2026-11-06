@@ -9,6 +9,7 @@ import BuscaSemanticaPage from './pages/BuscaSemanticaPage'
 import GerarPacientePage from './pages/GerarPacientePage'
 import CadastrarPacientePage from './pages/CadastrarPacientePage'
 import ChatPage from './pages/ChatPage'
+import CustosPage from './pages/CustosPage'
 
 function AppRoutes() {
   return (
@@ -22,6 +23,7 @@ function AppRoutes() {
       <Route path="/cadastrar" element={<PrivateRoute><CadastrarPacientePage /></PrivateRoute>} />
       <Route path="/chat" element={<PrivateRoute><ChatPage /></PrivateRoute>} />
       <Route path="/chat/:sessionId" element={<PrivateRoute><ChatPage /></PrivateRoute>} />
+      <Route path="/custos" element={<PrivateRoute><CustosPage /></PrivateRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

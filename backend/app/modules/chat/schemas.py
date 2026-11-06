@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 class SessionCreate(BaseModel):
     patient_id: uuid.UUID
+    model: Optional[str] = None  # só admin; deve estar em CHAT_ALLOWED_MODELS
 
 
 class MessageCreate(BaseModel):
@@ -39,11 +40,16 @@ class SessionOut(BaseModel):
     status: str
     started_at: datetime
     ended_at: Optional[datetime] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    temperature: Optional[float] = None
 
     model_config = {"from_attributes": True}
 
 
 class SessionDetail(SessionOut):
+    system_prompt: Optional[str] = None  # preenchido só para admin
+    system_prompt_tokens: Optional[int] = None
     messages: list[MessageOut] = []
     total_tokens: int = 0
     total_cost_usd: Decimal = Decimal(0)
@@ -81,3 +87,5 @@ class SessionUsageRow(BaseModel):
     completion_tokens: int
     cost_usd: Decimal
     avg_latency_ms: Optional[int] = None
+    temperature: Optional[float] = None
+    system_prompt_tokens: Optional[int] = None

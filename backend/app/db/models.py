@@ -12,7 +12,7 @@ from typing import Optional
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
-    Boolean, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text,
+    Boolean, DateTime, Enum, Float, ForeignKey, Integer, Numeric, String, Text,
     UniqueConstraint, func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -129,6 +129,12 @@ class SimulationSession(Base):
     status: Mapped[str] = mapped_column(String(20), default="active")
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Contexto do chat, para reproduzir/analisar a conversa depois
+    provider: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    temperature: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    system_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    system_prompt_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     patient: Mapped[VirtualPatient] = relationship(back_populates="simulation_sessions")
     student: Mapped[User] = relationship(back_populates="simulation_sessions")

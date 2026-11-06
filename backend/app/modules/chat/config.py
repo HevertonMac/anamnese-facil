@@ -42,6 +42,19 @@ def rate_limit_per_minute() -> int:
     return _int("CHAT_RATE_LIMIT_PER_MIN", 20)
 
 
+def allowed_models() -> list[str]:
+    raw = os.environ.get("CHAT_ALLOWED_MODELS", "gpt-4o-mini,gpt-4o")
+    return [m.strip() for m in raw.split(",") if m.strip()]
+
+
+def analytics_enabled() -> bool:
+    """Análise de custos: ligada por CHAT_ANALYTICS_ENABLED; se ausente, só em ENVIRONMENT=development."""
+    raw = os.environ.get("CHAT_ANALYTICS_ENABLED", "").strip()
+    if raw:
+        return raw.lower() in ("1", "true", "yes", "on")
+    return os.environ.get("ENVIRONMENT", "").strip().lower() == "development"
+
+
 def temperature() -> float:
     try:
         return float(os.environ.get("CHAT_TEMPERATURE", 0.9))

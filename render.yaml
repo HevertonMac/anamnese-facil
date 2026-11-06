@@ -27,6 +27,9 @@ services:
         value: openai
       - key: CHAT_MODEL
         value: gpt-4o-mini
+      # Análise de custos é exclusiva de dev: nunca expor em produção
+      - key: CHAT_ANALYTICS_ENABLED
+        value: "false"
       - key: ANTHROPIC_API_KEY
         sync: false
 
