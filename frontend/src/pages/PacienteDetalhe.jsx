@@ -102,6 +102,7 @@ export default function PacienteDetalhe() {
   const nome      = patient.nome || 'Paciente Virtual'
   const compKey    = (patient.complexidade || '').toLowerCase()
   const areaLabel  = EIXO_A_LABELS[patient.eixo_a] || patient.eixo_a
+  const area2Label = patient.eixo_a_secundario ? (EIXO_A_LABELS[patient.eixo_a_secundario] || patient.eixo_a_secundario) : null
   const sexoLabel  = patient.sexo === 'M' ? 'Masculino' : patient.sexo === 'F' ? 'Feminino' : patient.sexo
 
   // ── case_data fields ──────────────────────────────────────────────────
@@ -144,6 +145,7 @@ export default function PacienteDetalhe() {
             <h1 style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 24, fontWeight: 700, marginBottom: 10 }}>{nome}</h1>
             <div className="flex-row" style={{ flexWrap: 'wrap', gap: 6 }}>
               {areaLabel && <span className="badge badge-blue">{areaLabel}</span>}
+              {area2Label && <span className="badge badge-gray">{area2Label}</span>}
               {patient.complexidade && (
                 <span className={`badge ${COMPLEXITY_BADGE[compKey] || 'badge-gray'}`}>
                   Complexidade {patient.complexidade}

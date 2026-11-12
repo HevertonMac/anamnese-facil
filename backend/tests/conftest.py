@@ -37,6 +37,7 @@ def make_patient(
     id: str | None = None,
     case_number: int = 1,
     eixo_a: str = "cardiovascular",
+    eixo_a_secundario: str | None = None,
     eixo_b: str = "colaborativo",
     eixo_c: str = "baixo_letramento_vulneravel",
     complexidade: str = "media",
@@ -54,6 +55,7 @@ def make_patient(
     p.id = pid
     p.case_number = case_number
     p.eixo_a = eixo_a
+    p.eixo_a_secundario = eixo_a_secundario
     p.eixo_b = eixo_b
     p.eixo_c = eixo_c
     p.complexidade = complexidade

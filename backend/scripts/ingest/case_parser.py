@@ -353,7 +353,11 @@ EIXO_A_KEYWORDS: list[tuple[str, str]] = [
     ("geniturin", "geniturinario"), ("genitourin", "geniturinario"), ("urolog", "geniturinario"), ("nefro", "geniturinario"),
     ("renal", "geniturinario"), ("ginecol", "geniturinario"),
     ("infect", "infectoparasitario"), ("parasit", "infectoparasitario"),
+    ("psiquiat", "psiquiatria_saude_mental"), ("saude mental", "psiquiatria_saude_mental"),
 ]
+# "Cirúrgico" costuma qualificar outra área ("Cirúrgico / Gastrintestinal"): só vale como área própria
+# quando nenhuma outra casar.
+EIXO_A_CIRURGICA_KEYWORDS: list[tuple[str, str]] = [("cirurg", "clinica_cirurgica")]
 EIXO_B_KEYWORDS: list[tuple[str, str]] = [
     ("resistente", "resistente"), ("hostil", "resistente"), ("baixa adesao", "resistente"),
     ("descrente", "resistente"), ("negacao", "resistente"), ("evasiv", "resistente"),
@@ -385,7 +389,8 @@ def _first_match(raw: str, table: list[tuple[str, str]], split_segments: bool) -
 
 
 def map_eixo_a(raw: str) -> Optional[str]:
-    return _first_match(raw, EIXO_A_KEYWORDS, split_segments=True)
+    return (_first_match(raw, EIXO_A_KEYWORDS, split_segments=True)
+            or _first_match(raw, EIXO_A_CIRURGICA_KEYWORDS, split_segments=True))
 
 
 def map_eixo_b(raw: str) -> Optional[str]:

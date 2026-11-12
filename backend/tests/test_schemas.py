@@ -185,7 +185,7 @@ class TestEnumConsistency:
         expected = {
             "cardiovascular", "respiratorio", "gastrointestinal",
             "neurologico", "musculoesqueletico", "endocrino_metabolico", "geniturinario",
-            "infectoparasitario",
+            "infectoparasitario", "clinica_cirurgica", "psiquiatria_saude_mental",
         }
         actual = {v.value for v in EixoA}
         assert actual == expected

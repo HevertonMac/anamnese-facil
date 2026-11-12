@@ -4,7 +4,7 @@ import logging
 import uuid
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import delete, func, select, text, update
+from sqlalchemy import delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
 from app.db.models import (
@@ -32,7 +32,7 @@ async def list_patients(
     if active_only:
         q = q.where(VirtualPatient.is_active == True)
     if eixo_a:
-        q = q.where(VirtualPatient.eixo_a == eixo_a)
+        q = q.where(or_(VirtualPatient.eixo_a == eixo_a, VirtualPatient.eixo_a_secundario == eixo_a))
     if complexidade:
         q = q.where(VirtualPatient.complexidade == complexidade)
     q = q.order_by(VirtualPatient.case_number)

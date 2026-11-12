@@ -6,6 +6,7 @@ export const EIXO_A_OPTIONS = [
   ['gastrointestinal', 'Gastrointestinal'], ['neurologico', 'Neurológico'],
   ['musculoesqueletico', 'Musculoesquelético'], ['endocrino_metabolico', 'Endócrino/Metabólico'],
   ['geniturinario', 'Geniturinário'], ['infectoparasitario', 'Infectoparasitário'],
+  ['clinica_cirurgica', 'Clínica Cirúrgica'], ['psiquiatria_saude_mental', 'Psiquiatria/Saúde Mental'],
 ]
 export const EIXO_A_LABELS = Object.fromEntries(EIXO_A_OPTIONS)
 

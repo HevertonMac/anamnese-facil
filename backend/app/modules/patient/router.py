@@ -52,6 +52,8 @@ EIXO_A_LABELS = {
     "endocrino_metabolico": "endócrino/metabólico",
     "geniturinario": "geniturinário",
     "infectoparasitario": "infectoparasitário",
+    "clinica_cirurgica": "clínica cirúrgica",
+    "psiquiatria_saude_mental": "psiquiatria/saúde mental",
 }
 
 EIXO_B_LABELS = {
@@ -502,7 +504,8 @@ async def create_patient_manual(
         agente=agente,
         hipoteses=req.hipoteses_diagnosticas,
         classificacao={
-            "eixo_a": req.eixo_a, "eixo_b": req.eixo_b, "eixo_c": req.eixo_c,
+            "eixo_a": req.eixo_a, "eixo_a_secundario": req.eixo_a_secundario,
+            "eixo_b": req.eixo_b, "eixo_c": req.eixo_c,
             "complexidade": req.complexidade, "letramento": req.letramento,
             "condicao_social": req.condicao_social, "nuance_eixo_b": req.nuance_eixo_b,
         },
@@ -511,7 +514,8 @@ async def create_patient_manual(
     return await _persist_patient(
         db,
         fields=dict(
-            eixo_a=req.eixo_a, eixo_b=req.eixo_b, eixo_c=req.eixo_c, complexidade=req.complexidade,
+            eixo_a=req.eixo_a, eixo_a_secundario=req.eixo_a_secundario,
+            eixo_b=req.eixo_b, eixo_c=req.eixo_c, complexidade=req.complexidade,
             nome=req.nome, idade=req.idade, sexo=req.sexo, queixa_principal=req.queixa_principal,
             diagnostico_principal=req.diagnostico_principal,
         ),

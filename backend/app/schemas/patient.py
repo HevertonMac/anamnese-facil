@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional, Union
 from uuid import UUID
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class Identificacao(BaseModel):
@@ -95,6 +95,7 @@ class CaseData(BaseModel):
 class VirtualPatientCreate(BaseModel):
     case_number: int
     eixo_a: str
+    eixo_a_secundario: Optional[str] = None
     eixo_b: str
     eixo_c: str
     complexidade: str
@@ -110,6 +111,7 @@ class VirtualPatientResponse(BaseModel):
     id: UUID
     case_number: int
     eixo_a: str
+    eixo_a_secundario: Optional[str] = None
     eixo_b: str
     eixo_c: str
     complexidade: str
@@ -149,7 +151,8 @@ class PatientGenerateRequest(BaseModel):
         description=(
             "Área clínica principal. Valores: cardiovascular, respiratorio, "
             "gastrointestinal, neurologico, musculoesqueletico, "
-            "endocrino_metabolico, geniturinario"
+            "endocrino_metabolico, geniturinario, infectoparasitario, "
+            "clinica_cirurgica, psiquiatria_saude_mental"
         )
     )
     eixo_b: str = Field(
@@ -195,6 +198,7 @@ class PatientManualRequest(BaseModel):
     """Cadastro manual — sem fallbacks; campos obrigatórios validados."""
     # Classificação clínica
     eixo_a: str = Field(min_length=1)
+    eixo_a_secundario: Optional[str] = None  # segunda área clínica, opcional; difere de eixo_a
     eixo_b: str = "colaborativo"
     eixo_c: str = "baixo_letramento_vulneravel"
     complexidade: str = "media"
@@ -254,6 +258,15 @@ class PatientManualRequest(BaseModel):
 
     # Hipóteses
     hipoteses_diagnosticas: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _eixo_a_secundario_valido(self):
+        sec = self.eixo_a_secundario
+        if sec in (None, ""):
+            self.eixo_a_secundario = None
+        elif sec == self.eixo_a:
+            raise ValueError("A segunda área clínica deve ser diferente da área principal")
+        return self
 
 
 class DocxValidationIssue(BaseModel):

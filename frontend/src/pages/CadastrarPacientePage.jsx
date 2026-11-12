@@ -10,7 +10,7 @@ import {
 
 // Campos escalares do formulário (o restante — interrogatório, exame físico e agente — vive em objetos aninhados).
 const EMPTY_FORM = {
-  eixo_a: '', eixo_b: 'colaborativo', eixo_c: 'baixo_letramento_vulneravel', complexidade: 'media',
+  eixo_a: '', eixo_a_secundario: '', eixo_b: 'colaborativo', eixo_c: 'baixo_letramento_vulneravel', complexidade: 'media',
   letramento: '', condicao_social: '', nuance_eixo_b: '',
   nome: '', idade: '', sexo: '', queixa_principal: '', diagnostico_principal: '',
   ...Object.fromEntries(IDENTIFICACAO_CAMPOS.map(([k]) => [k, ''])),
@@ -27,6 +27,7 @@ const MIN_HDA = 50
 function validate(f) {
   const e = {}
   if (!f.eixo_a) e.eixo_a = 'Campo obrigatório'
+  if (f.eixo_a_secundario && f.eixo_a_secundario === f.eixo_a) e.eixo_a_secundario = 'Deve ser diferente da área principal'
   if (!f.nome || f.nome.trim().length < 2) e.nome = 'Mínimo 2 caracteres'
   const idade = Number(f.idade)
   if (f.idade === '' || f.idade === null || !Number.isInteger(idade) || idade < 0 || idade > 130) e.idade = 'Informe uma idade entre 0 e 130'
@@ -293,6 +294,7 @@ export default function CadastrarPacientePage() {
         <>
           <div style={grid}>
             {select('eixo_a', 'Eixo A — Categoria diagnóstica', EIXO_A_OPTIONS, { required: true, blank: true })}
+            {select('eixo_a_secundario', 'Eixo A secundário (opcional)', EIXO_A_OPTIONS.filter(([v]) => v !== form.eixo_a), { blank: true })}
             {select('complexidade', 'Complexidade', COMPLEXIDADE_OPTIONS)}
             {select('eixo_b', 'Eixo B — Comunicação', EIXO_B_OPTIONS)}
             {select('eixo_c', 'Eixo C — Perfil sociodemográfico', EIXO_C_OPTIONS)}

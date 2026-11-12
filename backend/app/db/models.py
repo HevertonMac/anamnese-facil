@@ -31,6 +31,8 @@ class EixoA(str, enum.Enum):
     endocrino_metabolico = "endocrino_metabolico"
     geniturinario = "geniturinario"
     infectoparasitario = "infectoparasitario"
+    clinica_cirurgica = "clinica_cirurgica"
+    psiquiatria_saude_mental = "psiquiatria_saude_mental"
 
 
 class EixoB(str, enum.Enum):
@@ -66,6 +68,7 @@ class VirtualPatient(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     case_number: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
     eixo_a: Mapped[str] = mapped_column(Enum(EixoA, name="eixo_a_enum"), nullable=False)
+    eixo_a_secundario: Mapped[Optional[str]] = mapped_column(Enum(EixoA, name="eixo_a_enum"), nullable=True)
     eixo_b: Mapped[str] = mapped_column(Enum(EixoB, name="eixo_b_enum"), nullable=False)
     eixo_c: Mapped[str] = mapped_column(Enum(EixoC, name="eixo_c_enum"), nullable=False)
     complexidade: Mapped[str] = mapped_column(Enum(ComplexidadeEnum, name="complexidade_enum"), nullable=False)

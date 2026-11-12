@@ -357,6 +357,10 @@ class TestMetadados:
         ("Ginecológico / Emergência (gravidez ectópica rota)", "geniturinario"),
         ("Doenças Infecciosas e Parasitárias", "infectoparasitario"),
         ("Neurológico / Neuromuscular (miastenia gravis)", "neurologico"),
+        ("Clínica Cirúrgica (colecistite aguda)", "clinica_cirurgica"),
+        ("Cirurgia Geral", "clinica_cirurgica"),
+        ("Psiquiatria / Saúde Mental (transtorno depressivo)", "psiquiatria_saude_mental"),
+        ("Saúde Mental", "psiquiatria_saude_mental"),
     ])
     def test_map_eixo_a(self, raw, expected):
         assert map_eixo_a(raw) == expected

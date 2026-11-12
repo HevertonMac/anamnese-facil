@@ -65,6 +65,21 @@ class TestCreatePatientManual:
         assert case_data["queixa_principal_texto"] == VALID_PAYLOAD["queixa_principal"]
         assert case_data["historia_patologica"]["medicamentos_em_uso"] == ["Losartana 50mg 1x/dia"]
 
+    async def test_novas_areas_e_segunda_area_opcional(self, post_manual):
+        resp = await post_manual({**VALID_PAYLOAD, "eixo_a": "clinica_cirurgica", "eixo_a_secundario": "psiquiatria_saude_mental"})
+        assert resp.status_code == 201, resp.text
+        cls = resp.json()["patient"]["case_data"]["classificacao"]
+        assert cls["eixo_a"] == "clinica_cirurgica" and cls["eixo_a_secundario"] == "psiquiatria_saude_mental"
+
+    async def test_sem_segunda_area_nao_grava_campo(self, post_manual):
+        resp = await post_manual({**VALID_PAYLOAD, "eixo_a_secundario": ""})
+        assert resp.status_code == 201, resp.text
+        assert "eixo_a_secundario" not in resp.json()["patient"]["case_data"]["classificacao"]
+
+    async def test_segunda_area_igual_a_principal_retorna_422(self, post_manual):
+        resp = await post_manual({**VALID_PAYLOAD, "eixo_a_secundario": "cardiovascular"})
+        assert resp.status_code == 422
+
     async def test_sem_nome_retorna_422(self, post_manual):
         payload = {k: v for k, v in VALID_PAYLOAD.items() if k != "nome"}
         assert (await post_manual(payload)).status_code == 422

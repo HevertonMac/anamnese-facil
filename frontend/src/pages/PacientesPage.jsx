@@ -3,19 +3,9 @@ import { Link } from 'react-router-dom'
 import Layout from '../components/Layout'
 import client from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
+import { EIXO_A_LABELS } from '../caseModel'
 
 const COMPLEXITY_BADGE = { baixa: 'badge-green', media: 'badge-amber', alta: 'badge-red' }
-
-const EIXO_A_LABELS = {
-  cardiovascular: 'Cardiovascular',
-  respiratorio: 'Respiratório',
-  gastrointestinal: 'Gastrointestinal',
-  neurologico: 'Neurológico',
-  musculoesqueletico: 'Musculoesquelético',
-  endocrino_metabolico: 'Endócrino/Metabólico',
-  geniturinario: 'Geniturinário',
-  infectoparasitario: 'Infectoparasitário',
-}
 
 export default function PacientesPage() {
   const { user } = useAuth()
@@ -52,7 +42,7 @@ export default function PacientesPage() {
   }
 
   // Build area list from eixo_a field
-  const areas = [...new Set(patients.map(p => p.eixo_a).filter(Boolean))].sort()
+  const areas = [...new Set(patients.flatMap(p => [p.eixo_a, p.eixo_a_secundario]).filter(Boolean))].sort()
 
   const filtered = patients.filter(p => {
     if (!search) return true
@@ -117,6 +107,7 @@ export default function PacientesPage() {
             {filtered.map(p => {
               const compKey = (p.complexidade || '').toLowerCase()
               const areaLabel = EIXO_A_LABELS[p.eixo_a] || p.eixo_a
+              const area2Label = p.eixo_a_secundario ? (EIXO_A_LABELS[p.eixo_a_secundario] || p.eixo_a_secundario) : null
               const sexoLabel = p.sexo === 'M' ? 'Masculino' : p.sexo === 'F' ? 'Feminino' : p.sexo
               return (
                 <Link key={p.id} to={`/pacientes/${p.id}`} className="patient-card">
@@ -126,6 +117,7 @@ export default function PacientesPage() {
                   </div>
                   <div className="flex-row" style={{ flexWrap: 'wrap', gap: 6 }}>
                     {areaLabel && <span className="badge badge-blue">{areaLabel}</span>}
+                    {area2Label && <span className="badge badge-gray">{area2Label}</span>}
                     {p.complexidade && (
                       <span className={`badge ${COMPLEXITY_BADGE[compKey] || 'badge-gray'}`}>
                         {p.complexidade}
