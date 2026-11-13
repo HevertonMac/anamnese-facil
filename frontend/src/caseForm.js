@@ -31,21 +31,37 @@ export function validate(f) {
   return e
 }
 
+// Coerções tolerantes: casos antigos/importados podem ter listas de objetos, texto no lugar de lista etc.
+// O formulário só trabalha com strings e listas de strings; qualquer outra forma não pode derrubar a tela.
+const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v)
+const asObj = v => (isObj(v) ? v : {})
+function asText(v) {
+  if (v === null || v === undefined) return ''
+  if (typeof v === 'string') return v
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
+  if (Array.isArray(v)) return v.map(asText).filter(Boolean).join('\n')
+  return Object.values(v).map(asText).filter(Boolean).join(' - ')
+}
+const asList = v => (Array.isArray(v) ? v : typeof v === 'string' ? v.split('\n') : [])
+  .map(asText).map(t => t.trim()).filter(Boolean)
+const textMap = o => Object.fromEntries(Object.entries(asObj(o)).map(([k, v]) => [k, asText(v)]))
+
 // Resposta de /parse-docx -> estado do formulário. Aceita o formato novo (dicts) e o antigo (texto único).
 export function applyExtracted(extracted) {
+  const src = asObj(extracted)
   const form = { ...EMPTY_FORM }
-  for (const [k, v] of Object.entries(extracted)) {
+  for (const [k, v] of Object.entries(src)) {
     if (!(k in EMPTY_FORM)) continue
-    form[k] = Array.isArray(EMPTY_FORM[k]) ? (v || []) : (v ?? '')
+    if (Array.isArray(EMPTY_FORM[k])) form[k] = asList(v)
+    else form[k] = k === 'idade' && typeof v === 'number' ? v : asText(v)
   }
-  const ic = extracted.interrogatorio_complementar
-  const interrogatorio = typeof ic === 'string' ? (ic ? { texto: ic } : {}) : { ...(ic || {}) }
-  const ef = extracted.exame_fisico
-  const { sinais_vitais: sv, ...resto } = typeof ef === 'object' && ef ? ef : {}
-  const exame = typeof ef === 'string' ? (ef ? { outros_achados: ef } : {}) : resto
-  const agente = {}
-  for (const [k, v] of Object.entries(extracted.agente_ia || {})) agente[k] = Array.isArray(v) ? v.join('\n') : v
-  return { form, nested: { interrogatorio, sinais: { ...(sv || {}) }, exame, agente } }
+  const ic = src.interrogatorio_complementar
+  const interrogatorio = isObj(ic) ? textMap(ic) : (asText(ic) ? { texto: asText(ic) } : {})
+  const ef = src.exame_fisico
+  const { sinais_vitais: sv, ...resto } = asObj(ef)
+  const exame = isObj(ef) ? textMap(resto) : (asText(ef) ? { outros_achados: asText(ef) } : {})
+  const agente = textMap(src.agente_ia)
+  return { form, nested: { interrogatorio, sinais: textMap(sv), exame, agente } }
 }
 
 export function buildPayload(form, nested) {
@@ -71,18 +87,19 @@ export function buildPayload(form, nested) {
 // Paciente salvo (GET /kb/patients/{id}) -> formato do PatientManualRequest, para pré-preencher a edição
 // via applyExtracted. É o inverso de buildPayload + _manual_to_case do backend.
 export function patientToExtracted(patient) {
-  const cd = patient?.case_data || {}
-  const ident = cd.identificacao || {}
-  const cls = cd.classificacao || {}
-  const pat = cd.historia_patologica || {}
-  const soc = cd.historia_social || {}
-  const texto = v => (v && typeof v === 'object' ? v.texto_livre : v) || ''
+  const p = asObj(patient)
+  const cd = asObj(p.case_data)
+  const ident = asObj(cd.identificacao)
+  const cls = asObj(cd.classificacao)
+  const pat = asObj(cd.historia_patologica)
+  const soc = asObj(cd.historia_social)
+  const texto = v => (isObj(v) ? v.texto_livre : v) || ''
   const out = {
-    eixo_a: patient.eixo_a, eixo_a_secundario: patient.eixo_a_secundario || '',
-    eixo_b: patient.eixo_b, eixo_c: patient.eixo_c, complexidade: patient.complexidade,
+    eixo_a: p.eixo_a, eixo_a_secundario: p.eixo_a_secundario || '',
+    eixo_b: p.eixo_b, eixo_c: p.eixo_c, complexidade: p.complexidade,
     letramento: cls.letramento, condicao_social: cls.condicao_social, nuance_eixo_b: cls.nuance_eixo_b,
-    nome: patient.nome, idade: patient.idade, sexo: patient.sexo,
-    queixa_principal: patient.queixa_principal, diagnostico_principal: patient.diagnostico_principal,
+    nome: p.nome, idade: p.idade, sexo: p.sexo,
+    queixa_principal: p.queixa_principal, diagnostico_principal: p.diagnostico_principal,
     contexto_aluno: cd.contexto_aluno, historia_doenca_atual: cd.historia_doenca_atual,
     historia_fisiologica: texto(cd.historia_fisiologica),
     historia_patologica_texto: pat.texto_livre, medicacoes_observacao: pat.medicacoes_observacao,
@@ -96,7 +113,11 @@ export function patientToExtracted(patient) {
   }
   for (const [k] of IDENTIFICACAO_CAMPOS) out[k] = ident[k]
   // exame_fisico guarda também um texto_livre derivado (recalculado no backend): não é um campo editável.
-  const { texto_livre: derivado, ...exame } = cd.exame_fisico || {}
-  out.exame_fisico = Object.keys(exame).length ? exame : (derivado || '')
+  if (isObj(cd.exame_fisico)) {
+    const { texto_livre: derivado, ...exame } = cd.exame_fisico
+    out.exame_fisico = Object.keys(exame).length ? exame : (derivado || '')
+  } else {
+    out.exame_fisico = asText(cd.exame_fisico)
+  }
   return out
 }

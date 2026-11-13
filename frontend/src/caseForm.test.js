@@ -126,3 +126,55 @@ describe('validate', () => {
     expect(validate({ ...form, eixo_a_secundario: form.eixo_a }).eixo_a_secundario).toBeDefined()
   })
 })
+
+describe('dados legados / formatos inesperados não quebram a edição', () => {
+  const LEGACY = {
+    id: 'x', eixo_a: 'cardiovascular', nome: 'Maria', idade: 40, sexo: 'F',
+    queixa_principal: 'Tosse há dias', diagnostico_principal: 'Pneumonia',
+    case_data: {
+      historia_doenca_atual: HDA,
+      historia_patologica: {
+        doencas_previas: 'HAS\nDM2',                                       // texto no lugar de lista
+        medicamentos_em_uso: [{ nome: 'Losartana', dose: '50mg' }],        // objetos no lugar de strings
+        alergias: null, cirurgias: 42,
+      },
+      historia_social: 'texto solto',                                     // string no lugar de objeto
+      historia_fisiologica: null,
+      exame_fisico: 'Bom estado geral',                                   // legado: texto único
+      interrogatorio_complementar: 'Sem queixas',
+      agente_ia: { perfil: { a: 'x' }, voz_postura_discurso: [{ t: 'baixa' }] },
+      hipoteses_diagnosticas: 'Pneumonia',
+    },
+  }
+
+  it('gera apenas strings e listas de strings', () => {
+    const { form, nested } = applyExtracted(patientToExtracted(LEGACY))
+    for (const k of ['doencas_previas', 'cirurgias', 'internacoes', 'medicamentos_em_uso', 'alergias', 'hipoteses_diagnosticas']) {
+      expect(Array.isArray(form[k])).toBe(true)
+      form[k].forEach(i => expect(typeof i).toBe('string'))
+    }
+    expect(form.doencas_previas).toEqual(['HAS', 'DM2'])
+    expect(form.medicamentos_em_uso).toEqual(['Losartana - 50mg'])
+    expect(form.hipoteses_diagnosticas).toEqual(['Pneumonia'])
+    for (const group of Object.values(nested)) {
+      Object.values(group).forEach(v => expect(typeof v).toBe('string'))
+    }
+    expect(nested.exame.outros_achados).toBe('Bom estado geral')
+    expect(nested.interrogatorio.texto).toBe('Sem queixas')
+  })
+
+  it('exame físico em texto não é espalhado por caractere', () => {
+    expect(patientToExtracted(LEGACY).exame_fisico).toBe('Bom estado geral')
+  })
+
+  it('aceita paciente sem case_data ou nulo', () => {
+    expect(() => applyExtracted(patientToExtracted({ nome: 'X' }))).not.toThrow()
+    expect(() => applyExtracted(patientToExtracted(null))).not.toThrow()
+    expect(() => applyExtracted(null)).not.toThrow()
+  })
+
+  it('o payload de um caso legado continua serializável', () => {
+    const { form, nested } = applyExtracted(patientToExtracted(LEGACY))
+    expect(() => JSON.stringify(buildPayload(form, nested))).not.toThrow()
+  })
+})
