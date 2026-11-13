@@ -5,6 +5,8 @@ from typing import Any, Optional, Union
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.db.models import ComplexidadeEnum, EixoA, EixoB, EixoC
+
 
 class Identificacao(BaseModel):
     nome: str
@@ -267,6 +269,41 @@ class PatientManualRequest(BaseModel):
         elif sec == self.eixo_a:
             raise ValueError("A segunda área clínica deve ser diferente da área principal")
         return self
+
+
+class PatientUpdateRequest(PatientManualRequest):
+    """Edição por administrador: mesmas regras do cadastro, com limites alinhados ao banco e enums validados."""
+    nome: str = Field(min_length=2, max_length=100)
+
+    @field_validator("eixo_a", "eixo_a_secundario")
+    @classmethod
+    def _eixo_a_enum(cls, v):
+        if v in (None, ""):
+            return v
+        if v not in {e.value for e in EixoA}:
+            raise ValueError("Área clínica inválida")
+        return v
+
+    @field_validator("eixo_b")
+    @classmethod
+    def _eixo_b_enum(cls, v):
+        if v not in {e.value for e in EixoB}:
+            raise ValueError("Eixo B inválido")
+        return v
+
+    @field_validator("eixo_c")
+    @classmethod
+    def _eixo_c_enum(cls, v):
+        if v not in {e.value for e in EixoC}:
+            raise ValueError("Eixo C inválido")
+        return v
+
+    @field_validator("complexidade")
+    @classmethod
+    def _complexidade_enum(cls, v):
+        if v not in {e.value for e in ComplexidadeEnum}:
+            raise ValueError("Complexidade inválida")
+        return v
 
 
 class DocxValidationIssue(BaseModel):

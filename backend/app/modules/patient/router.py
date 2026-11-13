@@ -15,22 +15,24 @@ import json
 import logging
 import os
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
-from app.db.models import KnowledgeChunk, VirtualPatient
+from app.db.models import KnowledgeChunk, User, VirtualPatient
+from app.modules.auth.router import require_admin
 from app.modules.patient.case_template import (
     AGENTE_SECOES, SISTEMAS, build_chunk_sections, build_identificacao,
     normalize_agente, normalize_exame_fisico, normalize_interrogatorio,
 )
 from app.schemas.patient import (
     DocxParseResponse, DocxValidationIssue, PatientGenerateRequest, PatientGenerateResponse,
-    PatientManualRequest, VirtualPatientDetail,
+    PatientManualRequest, PatientUpdateRequest, VirtualPatientDetail,
 )
 
 log = logging.getLogger(__name__)
@@ -348,6 +350,32 @@ def _assemble_case_data(
     return case_data, build_chunk_sections(case_data, case_data["hipoteses_diagnosticas"])
 
 
+def _split_sections(sections: dict[str, str]) -> list[tuple[str, str, int]]:
+    """Divide o texto de cada seção em chunks: (seção, conteúdo, índice)."""
+    all_chunks: list[tuple[str, str, int]] = []
+    for section_name, section_text in sections.items():
+        if not section_text or not section_text.strip():
+            continue
+        for i, chunk in enumerate(chunk_text(section_text)):
+            all_chunks.append((section_name, chunk, i))
+    return all_chunks
+
+
+async def _embed_chunks(patient_id: Any, all_chunks: list[tuple[str, str, int]]) -> list[KnowledgeChunk]:
+    """Gera os embeddings (vetores zero sem OPENAI_API_KEY) e devolve os KnowledgeChunk, sem gravar."""
+    result: list[KnowledgeChunk] = []
+    batch_size = 100
+    for batch_start in range(0, len(all_chunks), batch_size):
+        batch = all_chunks[batch_start: batch_start + batch_size]
+        embeddings = await get_embeddings([c[1] for c in batch])
+        for (section_name, content, chunk_index), embedding in zip(batch, embeddings):
+            result.append(KnowledgeChunk(
+                patient_id=patient_id, section=section_name, content=content,
+                embedding=embedding, chunk_index=chunk_index, token_count=len(content.split()),
+            ))
+    return result
+
+
 async def _persist_patient(
     db: AsyncSession, *, fields: dict[str, Any], case_data: dict[str, Any],
     sections: dict[str, str], generated_by: str,
@@ -362,27 +390,10 @@ async def _persist_patient(
     patient_id = patient.id
     log.info(f"  Paciente #{case_num} ({fields['nome']}) inserido — id={patient_id}")
 
-    all_chunks: list[tuple[str, str, int]] = []
-    for section_name, section_text in sections.items():
-        if not section_text or not section_text.strip():
-            continue
-        for i, chunk in enumerate(chunk_text(section_text)):
-            all_chunks.append((section_name, chunk, i))
+    all_chunks = _split_sections(sections)
     log.info(f"  {len(all_chunks)} chunks gerados")
-
-    batch_size = 100
-    for batch_start in range(0, len(all_chunks), batch_size):
-        batch = all_chunks[batch_start: batch_start + batch_size]
-        embeddings = await get_embeddings([c[1] for c in batch])  # vetores zero sem OPENAI_API_KEY
-        for (section_name, content, chunk_index), embedding in zip(batch, embeddings):
-            db.add(KnowledgeChunk(
-                patient_id=patient_id,
-                section=section_name,
-                content=content,
-                embedding=embedding,
-                chunk_index=chunk_index,
-                token_count=len(content.split()),
-            ))
+    for chunk in await _embed_chunks(patient_id, all_chunks):
+        db.add(chunk)
 
     await db.commit()
     log.info(f"  Ingestão completa: {len(all_chunks)} chunks para paciente #{case_num}")
@@ -463,16 +474,8 @@ async def generate_patient(
     )
 
 
-@router.post(
-    "/manual",
-    response_model=PatientGenerateResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Cadastra um paciente a partir de formulário manual (sem LLM)",
-)
-async def create_patient_manual(
-    req: PatientManualRequest,
-    db: AsyncSession = Depends(get_db),
-):
+def _manual_to_case(req: PatientManualRequest) -> tuple[dict[str, Any], dict[str, str], dict[str, Any]]:
+    """Converte o formulário em (case_data, seções p/ chunking, colunas do VirtualPatient)."""
     agente = req.agente_ia if req.agente_ia else (req.caracteristicas_agente or "")
     case_data, sections = _assemble_case_data(
         nome=req.nome, idade=req.idade, sexo=req.sexo, queixa=req.queixa_principal,
@@ -511,16 +514,71 @@ async def create_patient_manual(
         },
         gerado_por_llm=False,
     )
-    return await _persist_patient(
-        db,
-        fields=dict(
-            eixo_a=req.eixo_a, eixo_a_secundario=req.eixo_a_secundario,
-            eixo_b=req.eixo_b, eixo_c=req.eixo_c, complexidade=req.complexidade,
-            nome=req.nome, idade=req.idade, sexo=req.sexo, queixa_principal=req.queixa_principal,
-            diagnostico_principal=req.diagnostico_principal,
-        ),
-        case_data=case_data, sections=sections, generated_by="manual",
+    fields = dict(
+        eixo_a=req.eixo_a, eixo_a_secundario=req.eixo_a_secundario,
+        eixo_b=req.eixo_b, eixo_c=req.eixo_c, complexidade=req.complexidade,
+        nome=req.nome, idade=req.idade, sexo=req.sexo, queixa_principal=req.queixa_principal,
+        diagnostico_principal=req.diagnostico_principal,
     )
+    return case_data, sections, fields
+
+
+@router.post(
+    "/manual",
+    response_model=PatientGenerateResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Cadastra um paciente a partir de formulário manual (sem LLM)",
+)
+async def create_patient_manual(
+    req: PatientManualRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    case_data, sections, fields = _manual_to_case(req)
+    return await _persist_patient(db, fields=fields, case_data=case_data, sections=sections, generated_by="manual")
+
+
+@router.put(
+    "/{patient_id}",
+    response_model=VirtualPatientDetail,
+    summary="Edita os dados de um paciente (somente administradores)",
+)
+async def update_patient(
+    patient_id: uuid.UUID,
+    req: PatientUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    result = await db.execute(select(VirtualPatient).where(VirtualPatient.id == patient_id))
+    patient = result.scalar_one_or_none()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    case_data, sections, fields = _manual_to_case(req)
+    # Mantém campos do pipeline de ingestão que o formulário não cobre.
+    old = patient.case_data or {}
+    if old.get("raw_sections"):
+        case_data["raw_sections"] = old["raw_sections"]
+    if old.get("gerado_por_llm"):
+        case_data["gerado_por_llm"] = True
+
+    # Embeddings primeiro: se a OpenAI falhar (502), nada foi alterado.
+    new_chunks = await _embed_chunks(patient.id, _split_sections(sections))
+
+    try:
+        for key, value in fields.items():
+            setattr(patient, key, value)
+        patient.case_data = case_data
+        await db.execute(delete(KnowledgeChunk).where(KnowledgeChunk.patient_id == patient.id))
+        await db.flush()
+        for chunk in new_chunks:
+            db.add(chunk)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        log.exception("Falha ao editar paciente %s", patient_id)
+        raise HTTPException(status_code=500, detail="Failed to update patient")
+    log.info("Paciente %s (caso %s) editado por %s", patient_id, patient.case_number, admin.email)
+    return VirtualPatientDetail.model_validate(patient)
 
 
 _REQUIRED_DOCX_FIELDS = {
