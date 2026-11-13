@@ -16,6 +16,7 @@ function AppRoutes() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/" element={<PrivateRoute><DashboardPage /></PrivateRoute>} />
       <Route path="/pacientes" element={<PrivateRoute><PacientesPage /></PrivateRoute>} />
+      <Route path="/pacientes/:id/editar" element={<PrivateRoute><CadastrarPacientePage /></PrivateRoute>} />
       <Route path="/pacientes/:id" element={<PrivateRoute><PacienteDetalhe /></PrivateRoute>} />
       <Route path="/busca" element={<PrivateRoute><BuscaSemanticaPage /></PrivateRoute>} />
       <Route path="/gerar" element={<PrivateRoute><GerarPacientePage /></PrivateRoute>} />

@@ -1,83 +1,21 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
 import Layout from '../components/Layout'
 import client from '../api/client'
+import {
+  EMPTY_FORM, EMPTY_NESTED, validate, applyExtracted, buildPayload, patientToExtracted,
+} from '../caseForm'
 import {
   EIXO_A_OPTIONS, EIXO_B_OPTIONS, EIXO_C_OPTIONS, COMPLEXIDADE_OPTIONS, LETRAMENTO_OPTIONS,
   CONDICAO_SOCIAL_OPTIONS, IDENTIFICACAO_CAMPOS, SISTEMAS, SINAIS_VITAIS, EXAME_FISICO_SECOES,
   AGENTE_SECOES, labelFor, toLines,
 } from '../caseModel'
 
-// Campos escalares do formulário (o restante — interrogatório, exame físico e agente — vive em objetos aninhados).
-const EMPTY_FORM = {
-  eixo_a: '', eixo_a_secundario: '', eixo_b: 'colaborativo', eixo_c: 'baixo_letramento_vulneravel', complexidade: 'media',
-  letramento: '', condicao_social: '', nuance_eixo_b: '',
-  nome: '', idade: '', sexo: '', queixa_principal: '', diagnostico_principal: '',
-  ...Object.fromEntries(IDENTIFICACAO_CAMPOS.map(([k]) => [k, ''])),
-  contexto_aluno: '', historia_doenca_atual: '', historia_fisiologica: '', historia_patologica_texto: '',
-  medicacoes_observacao: '', historia_familiar: '', historia_social_texto: '', tabagismo: '', etilismo: '',
-  doencas_previas: [], cirurgias: [], internacoes: [], medicamentos_em_uso: [], alergias: [],
-  hipoteses_diagnosticas: [],
-}
-const EMPTY_NESTED = { interrogatorio: {}, sinais: {}, exame: {}, agente: {} }
-
-const MIN_HDA = 50
-
-// Valida no cliente as mesmas regras do PatientManualRequest.
-function validate(f) {
-  const e = {}
-  if (!f.eixo_a) e.eixo_a = 'Campo obrigatório'
-  if (f.eixo_a_secundario && f.eixo_a_secundario === f.eixo_a) e.eixo_a_secundario = 'Deve ser diferente da área principal'
-  if (!f.nome || f.nome.trim().length < 2) e.nome = 'Mínimo 2 caracteres'
-  const idade = Number(f.idade)
-  if (f.idade === '' || f.idade === null || !Number.isInteger(idade) || idade < 0 || idade > 130) e.idade = 'Informe uma idade entre 0 e 130'
-  if (!['M', 'F'].includes(f.sexo)) e.sexo = 'Selecione M ou F'
-  if (!f.queixa_principal || f.queixa_principal.trim().length < 5) e.queixa_principal = 'Mínimo 5 caracteres'
-  if (!f.diagnostico_principal || f.diagnostico_principal.trim().length < 3) e.diagnostico_principal = 'Mínimo 3 caracteres'
-  if ((f.historia_doenca_atual || '').length < MIN_HDA) e.historia_doenca_atual = `Mínimo ${MIN_HDA} caracteres (atual: ${(f.historia_doenca_atual || '').length})`
-  return e
-}
-
 function apiErrorMessage(err, fallback) {
   const detail = err.response?.data?.detail
   if (Array.isArray(detail)) return detail.map(d => `${(d.loc || []).slice(1).join('.')}: ${d.msg}`).join('; ')
   return detail || fallback
-}
-
-// Resposta de /parse-docx -> estado do formulário. Aceita o formato novo (dicts) e o antigo (texto único).
-function applyExtracted(extracted) {
-  const form = { ...EMPTY_FORM }
-  for (const [k, v] of Object.entries(extracted)) {
-    if (!(k in EMPTY_FORM)) continue
-    form[k] = Array.isArray(EMPTY_FORM[k]) ? (v || []) : (v ?? '')
-  }
-  const ic = extracted.interrogatorio_complementar
-  const interrogatorio = typeof ic === 'string' ? (ic ? { texto: ic } : {}) : { ...(ic || {}) }
-  const ef = extracted.exame_fisico
-  const { sinais_vitais: sv, ...resto } = typeof ef === 'object' && ef ? ef : {}
-  const exame = typeof ef === 'string' ? (ef ? { outros_achados: ef } : {}) : resto
-  const agente = {}
-  for (const [k, v] of Object.entries(extracted.agente_ia || {})) agente[k] = Array.isArray(v) ? v.join('\n') : v
-  return { form, nested: { interrogatorio, sinais: { ...(sv || {}) }, exame, agente } }
-}
-
-function buildPayload(form, nested) {
-  const payload = { ...form, idade: parseInt(form.idade, 10) }
-  const compact = o => Object.fromEntries(Object.entries(o).filter(([, v]) => String(v ?? '').trim()))
-  const ic = compact(nested.interrogatorio)
-  if (Object.keys(ic).length) payload.interrogatorio_complementar = ic
-  const sinais = compact(nested.sinais), exame = compact(nested.exame)
-  if (Object.keys(sinais).length || Object.keys(exame).length) {
-    payload.exame_fisico = { ...exame, ...(Object.keys(sinais).length ? { sinais_vitais: sinais } : {}) }
-  }
-  const agente = {}
-  for (const [k, v] of Object.entries(nested.agente)) {
-    if (k === 'perfil') { if (String(v).trim()) agente.perfil = v.trim() } else if (toLines(v).length) agente[k] = toLines(v)
-  }
-  if (Object.keys(agente).length) payload.agente_ia = agente
-  // campos de texto opcionais vazios são enviados como ausentes
-  for (const k of Object.keys(payload)) if (payload[k] === '') delete payload[k]
-  return payload
 }
 
 function ListField({ label, placeholder, items, onChange }) {
@@ -114,6 +52,12 @@ function ListField({ label, placeholder, items, onChange }) {
 
 export default function CadastrarPacientePage() {
   const navigate = useNavigate()
+  const { id } = useParams()
+  const editing = Boolean(id)               // /pacientes/:id/editar (somente administradores)
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
+  const [loadingPatient, setLoadingPatient] = useState(editing)
+  const [loadError, setLoadError] = useState('')
   const [form, setForm] = useState(EMPTY_FORM)
   const [nested, setNested] = useState(EMPTY_NESTED)
   const [errors, setErrors] = useState({})    // erros de validação por campo
@@ -122,6 +66,20 @@ export default function CadastrarPacientePage() {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [saved, setSaved] = useState(null)
+
+  useEffect(() => {
+    if (!editing) return
+    let cancelled = false
+    client.get(`/kb/patients/${id}`)
+      .then(r => {
+        if (cancelled) return
+        const next = applyExtracted(patientToExtracted(r.data))
+        setForm(next.form); setNested(next.nested)
+      })
+      .catch(err => { if (!cancelled) setLoadError(apiErrorMessage(err, 'Erro ao carregar o paciente.')) })
+      .finally(() => { if (!cancelled) setLoadingPatient(false) })
+    return () => { cancelled = true }
+  }, [editing, id])
 
   function update(k, v) {
     setForm(f => ({ ...f, [k]: v }))
@@ -170,6 +128,11 @@ export default function CadastrarPacientePage() {
     }
     setSaving(true)
     try {
+      if (editing) {
+        const r = await client.put(`/patients/${id}`, buildPayload(form, nested))
+        navigate(`/pacientes/${r.data.id}`)
+        return
+      }
       const r = await client.post('/patients/manual', buildPayload(form, nested))
       setSaved(r.data)
     } catch (err) {
@@ -240,6 +203,21 @@ export default function CadastrarPacientePage() {
   const docxErrors = docx.issues?.filter(i => i.severity === 'error') || []
   const docxWarnings = docx.issues?.filter(i => i.severity === 'warning') || []
 
+  if (editing && !isAdmin) {
+    return (
+      <Layout title="Editar Paciente">
+        <div className="alert alert-error">Apenas administradores podem editar pacientes.</div>
+      </Layout>
+    )
+  }
+  if (editing && (loadingPatient || loadError)) {
+    return (
+      <Layout title="Editar Paciente">
+        {loadError ? <div className="alert alert-error">{loadError}</div> : <p className="text-muted">Carregando...</p>}
+      </Layout>
+    )
+  }
+
   if (saved) {
     return (
       <Layout title="Cadastrar Paciente">
@@ -257,8 +235,8 @@ export default function CadastrarPacientePage() {
   }
 
   return (
-    <Layout title="Cadastrar Paciente">
-      <div className="card" style={{ marginBottom: 14 }}>
+    <Layout title={editing ? 'Editar Paciente' : 'Cadastrar Paciente'}>
+      {!editing && <div className="card" style={{ marginBottom: 14 }}>
         <div className="detail-section" style={{ marginTop: 0 }}>Importar de DOCX</div>
         <p className="text-muted" style={{ fontSize: 13, margin: '4px 0 12px' }}>
           Envie um caso no modelo padronizado (.docx) para preencher o formulário automaticamente. Campos ausentes ou inconsistentes serão indicados; nada é salvo até você confirmar.
@@ -288,7 +266,7 @@ export default function CadastrarPacientePage() {
             <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>{docxWarnings.map((i, n) => <li key={n}>{i.message}</li>)}</ul>
           </div>
         )}
-      </div>
+      </div>}
 
       {section('Classificação (metadados do caso)', (
         <>
@@ -410,9 +388,11 @@ export default function CadastrarPacientePage() {
 
       {saveError && <div className="alert alert-error">{saveError}</div>}
       <div className="flex-row" style={{ justifyContent: 'flex-end', marginBottom: 24 }}>
-        <button type="button" className="btn btn-outline" onClick={reset} disabled={saving}>Limpar formulário</button>
+        {editing
+          ? <button type="button" className="btn btn-outline" onClick={() => navigate(`/pacientes/${id}`)} disabled={saving}>Cancelar</button>
+          : <button type="button" className="btn btn-outline" onClick={reset} disabled={saving}>Limpar formulário</button>}
         <button type="button" className="btn btn-primary" onClick={handleSave} disabled={saving}>
-          {saving ? 'Salvando...' : 'Salvar paciente'}
+          {saving ? 'Salvando...' : editing ? 'Salvar alterações' : 'Salvar paciente'}
         </button>
       </div>
     </Layout>

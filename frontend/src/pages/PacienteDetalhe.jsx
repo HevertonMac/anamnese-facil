@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, Link } from 'react-router-dom'
 import Layout from '../components/Layout'
 import client from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
@@ -159,9 +159,12 @@ export default function PacienteDetalhe() {
             </div>
           </div>
           {user?.role === 'admin' && (
-            <button className="btn btn-danger" onClick={handleDelete} disabled={deleting}>
-              {deleting ? 'Excluindo...' : 'Excluir paciente'}
-            </button>
+            <div className="flex-row">
+              <Link className="btn btn-outline" to={`/pacientes/${patient.id}/editar`}>Editar paciente</Link>
+              <button className="btn btn-danger" onClick={handleDelete} disabled={deleting}>
+                {deleting ? 'Excluindo...' : 'Excluir paciente'}
+              </button>
+            </div>
           )}
         </div>
 
